@@ -177,7 +177,9 @@ No TypeScript, TSX, or generated type layer will be introduced unless the projec
 
 - MongoDB is the primary application data store, matching the existing projects.
 - A local MongoDB instance is the normal development dependency.
-- The API will use a bounded startup check and an explicit diagnostic bypass, following PhishGuard's operational boundary.
+- Normal `make dev` startup blocks before Django launches when the configured MongoDB service is not reachable.
+- The API keeps bounded health diagnostics and an explicit `--force` diagnostic bypass, following PhishGuard's operational boundary.
+- The supported bypass syntax is `make dev -- --force`; direct backend startup uses `python manage.py runserver --force` from `app/`.
 - A local in-memory Channels layer is acceptable for a single-process prototype.
 - Redis will be introduced only when multi-process or multi-camera real-time delivery requires it.
 - Continuous raw video will not be stored by default.
@@ -1026,6 +1028,12 @@ Create a reproducible project foundation and establish the contracts required fo
 - [x] The React/Vite project builds.
 - [x] No generated files or secrets are committed.
 - [x] `make check`, `make test`, and `make build` have defined behavior.
+- [x] Root `make dev` launches separate macOS Terminal service windows.
+- [x] The frontend child opens the browser automatically; the backend child stays browser-free.
+- [x] Root `make stop` stops both configured development service ports.
+- [x] Normal `make dev` requires reachable MongoDB before launching services.
+- [x] `make dev -- --force` provides the explicit diagnostic bypass and propagates it to the backend child.
+- [x] `make ci` and `git diff --check` pass.
 
 ---
 
@@ -1116,7 +1124,8 @@ Persist cameras, sessions, activity events, emergency events, and alerts through
 
 - Configure MongoDB and MongoEngine.
 - Add bounded MongoDB startup diagnostics.
-- Add explicit `--force` diagnostic behavior where required.
+- Require MongoDB for normal backend and root development startup.
+- Add explicit `make dev -- --force` and `python manage.py runserver --force` diagnostic behavior, including autoreloader-safe flag propagation.
 - Implement domain documents and indexes.
 - Implement serializers and resource endpoints.
 - Add health and capabilities responses.
@@ -1333,7 +1342,7 @@ Later checks may add JavaScript component tests and browser end-to-end tests.
 
 ### 14.5 Full verification workflow
 
-The root project should eventually provide:
+The root project provides the following verification commands:
 
 ```bash
 make doctor
@@ -1341,6 +1350,7 @@ make check
 make test
 make build
 make ci
+make stop
 ```
 
 Before a milestone is considered complete:
@@ -1351,31 +1361,41 @@ npm run build --prefix web
 git diff --check
 ```
 
-The exact commands will be finalized with the first implementation scaffold.
+The root and service Makefiles are now the executable command contract. Use `make -n`, `make -n dev`, and `make -n stop` to inspect recipes without launching services.
 
 ---
 
 ## 15. Development Commands to Provide
 
-The command surface should resemble the existing projects while using the `app/` backend directory:
+The command surface is implemented across the root, `app/`, and `web/` Makefiles:
 
 ```text
 make install             Install backend and web dependencies
-make setup-env           Create local environment files from templates
-make doctor              Inspect Python, Node, MongoDB, and model prerequisites
-make dev                 Start backend and web development services
-make app                  Start the backend without opening the browser
-make web-only            Start the web client and open the frontend URL
-make monitor             Start a local monitoring worker
-make check               Run Django/system checks
-make test                Run backend tests
+make setup-env           Create app/.env from the template
+make dev                 Start the full development cockpit (MongoDB required)
+make dev -- --force      Start diagnostic mode without the MongoDB startup check
+make dev-single          Run both services in one terminal
+make app                 Start only the Django backend
+make ui                  Start only the React frontend and open its browser
+make check               Run Django system checks
+make test                Run the complete backend suite
+make test-vision         Run temporal and pipeline tests
+make test-api            Run HTTP contract tests
+make compile             Compile-check Python files
 make build               Build the React application
+make check-health        Verify MongoDB readiness before normal startup
 make health              Call the API health endpoint
-make ci                  Run checks, tests, and frontend build
+make status              Show MongoDB, backend, and frontend status
+make open                Open the frontend manually
+make logs                Tail backend logs
+make stop                Stop both configured development service ports
+make restart             Stop, install, and relaunch the cockpit
 make clean-cache         Remove safe generated caches
+make clean               Remove local dependency environments and output
+make ci                  Run checks, tests, compilation, and the frontend build
 ```
 
-The frontend development command may open the browser automatically, as in PhishGuard. Starting the API or monitoring worker must not unexpectedly open a browser window.
+On macOS, root `make dev` first performs a bounded MongoDB reachability check, then opens the backend and frontend in separate Terminal windows, prints the service URLs, and lets the frontend child open the browser. `make -C app dev` remains browser-free and enforces the same MongoDB requirement, while `make -C web dev` opens the browser automatically. For intentional diagnostics, `make dev -- --force` bypasses the startup check and propagates `--force` to the backend child; direct backend startup supports `python manage.py runserver --force`. On non-macOS systems, the root command falls back to one-terminal mode. The root `make stop` command is scoped to `API_PORT` and `WEB_PORT` so it does not use broad process-name matching.
 
 ---
 
@@ -1419,6 +1439,8 @@ SHADE_ALERT_RECIPIENT=
 ```
 
 Secrets must remain blank or development-safe in the template. The actual local `.env` must be ignored by Git.
+
+The custom `LICENSE` preserves Dibakar Is Live attribution and defines the permitted academic, learning, research, and evaluation boundary. It does not relicense dependencies, datasets, model weights, fonts, icons, or external services; each third-party artifact remains subject to its own terms.
 
 ---
 

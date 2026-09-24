@@ -1,21 +1,129 @@
-MIT License
+SHADE-ai Source-Available Academic, Research, and Evaluation License
 
 Copyright (c) 2026 Dibakar Is Live
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. DEFINITIONS
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+"Software" means the SHADE-ai source code, documentation, configuration,
+interfaces, scripts, and other materials distributed with this license by the
+copyright holder.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+"You" means the individual or legal entity exercising rights under this
+license.
+
+"Commercial Use" means use primarily intended for or directed toward commercial
+advantage, monetary compensation, paid services, production operation for a
+commercial organization, or a service offered to paying users.
+
+"Safety-Critical Use" means using the Software as the sole or decisive basis for
+medical, emergency-response, law-enforcement, access-control, employment, or
+other decisions where a failure could reasonably cause physical, financial, or
+legal harm.
+
+2. LIMITED GRANT
+
+Subject to the conditions in this license, the copyright holder grants You a
+limited, non-exclusive, non-transferable, non-sublicensable, royalty-free right
+to:
+
+- view and study the Software;
+- run the Software for personal learning and experimentation;
+- use the Software for classroom instruction and academic work;
+- use the Software for non-commercial research and evaluation; and
+- reproduce or modify the Software for the permitted purposes above, provided
+  that the attribution, notice, source-availability, and safety conditions in
+  this license are preserved.
+
+This license does not grant rights for Commercial Use or Safety-Critical Use.
+
+3. CONDITIONS
+
+For every permitted copy or substantial portion of the Software, You must:
+
+1. retain this license and the copyright notice;
+2. clearly mark modified files and state that changes were made;
+3. preserve the SHADE-ai name and Dibakar Is Live attribution in source
+   distributions unless the copyright holder gives written permission for a
+   different attribution;
+4. make the corresponding source code for modifications available to recipients
+   under this same license; and
+5. retain the project safety notices and clearly communicate that model output
+   is an aid for human review, not proof that an emergency exists.
+
+4. PROHIBITED USES
+
+Without prior written permission from the copyright holder, You may not:
+
+- sell, license, sublicense, host for payment, or otherwise commercially exploit
+  the Software or a derivative work;
+- use the Software as a medical diagnosis, guaranteed security service, or
+  replacement for a trained emergency responder;
+- configure the Software so that an automated prediction is the sole basis for
+  an emergency, medical, employment, law-enforcement, or access-control action;
+- remove copyright, license, attribution, privacy, or safety notices;
+- present unmeasured accuracy, recall, precision, response-time, or availability
+  claims as guarantees;
+- use the SHADE-ai name, branding, or attribution to imply endorsement of a
+  derivative work without written permission; or
+- use the Software to collect, retain, or disclose camera data in violation of
+  applicable law, consent requirements, or privacy obligations.
+
+5. THIRD-PARTY MATERIALS
+
+The Software may reference or depend on third-party libraries, datasets, model
+artifacts, fonts, icons, or services. Those materials are not relicensed by
+this license. You are responsible for complying with their separate licenses,
+notices, model terms, privacy requirements, and usage restrictions.
+
+No model weights, datasets, camera credentials, or private evidence are granted
+by this license unless they are separately identified and licensed.
+
+6. OWNERSHIP
+
+The Software remains the property of the copyright holder. No ownership,
+trademark, patent, or other intellectual-property right is transferred by this
+license. Rights not expressly granted are reserved.
+
+7. DISCLAIMER
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, RELIABILITY, SAFETY, OR
+SECURITY. THE SOFTWARE MAY PRODUCE FALSE POSITIVES, FALSE NEGATIVES, DELAYS, OR
+OTHER FAILURES. IT DOES NOT GUARANTEE THAT AN ACTIVITY, FALL, EMERGENCY, ALERT,
+NOTIFICATION, OR RESPONSE WILL BE DETECTED, VERIFIED, DELIVERED, RECEIVED, OR
+ACTED UPON. YOU ARE RESPONSIBLE FOR VALIDATING OUTPUTS, OBTAINING CONSENT, AND
+FOR ALL USE OF THE SOFTWARE.
+
+8. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER SHALL
+NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY,
+OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF DATA, PRIVACY, PROFITS, REVENUE,
+BUSINESS, GOODWILL, SAFETY, OR SECURITY, ARISING FROM OR RELATED TO THE SOFTWARE
+OR THIS LICENSE, UNDER ANY THEORY OF LIABILITY, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+9. TERMINATION
+
+This license terminates automatically if You materially breach its terms. Upon
+termination, You must stop using and distributing the Software and delete copies
+under Your control, except where retention is required by law. Provisions that
+by their nature should survive termination survive, including ownership,
+disclaimer, limitation of liability, and third-party-material provisions.
+
+10. NO OBLIGATION
+
+The copyright holder is not required to provide support, updates, warranties,
+security fixes, model artifacts, datasets, notifications, or continued
+availability.
+
+11. CONTACT AND WRITTEN PERMISSION
+
+Requests for commercial licensing, branding permission, or other written
+permissions should be directed to the project maintainer through the official
+SHADE-ai repository channel.
+
+BY USING, COPYING, MODIFYING, OR DISTRIBUTING THE SOFTWARE, YOU ACKNOWLEDGE THAT
+YOU HAVE READ THIS LICENSE AND AGREE TO ITS TERMS. IF YOU DO NOT AGREE, DO NOT
+USE OR DISTRIBUTE THE SOFTWARE.

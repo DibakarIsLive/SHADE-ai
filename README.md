@@ -13,7 +13,7 @@ The repository currently contains the first professional foundation slice:
 - Django REST Framework backend under `app/`.
 - Django project package under `app/config/` with split settings.
 - MongoDB/MongoEngine document boundaries for cameras and emergency events.
-- Bounded database health diagnostics that keep the API inspectable when MongoDB is offline.
+- Bounded database health diagnostics plus an explicit diagnostic startup bypass when MongoDB is offline.
 - Vision interfaces for sources, detection, tracking, posture, activity classification, and temporal fall verification.
 - A dedicated monitoring worker boundary so camera processing does not run inside HTTP views.
 - React + JSX + Vite dashboard under `web/`.
@@ -56,7 +56,7 @@ make install
 
 ### 2. Start MongoDB
 
-Use the MongoDB installation appropriate for the local machine. SHADE-ai will still boot without MongoDB so that health and capability endpoints remain inspectable; persistence endpoints report a degraded state until MongoDB is available.
+Use the MongoDB installation appropriate for the local machine. Normal SHADE-ai development startup requires a reachable MongoDB instance. The root and backend `make dev` commands perform a bounded MongoDB ping before starting the Django process and stop with an actionable message when the database is unavailable.
 
 ### 3. Run the API and UI
 
@@ -64,11 +64,35 @@ Use the MongoDB installation appropriate for the local machine. SHADE-ai will st
 make dev
 ```
 
+On macOS, this starts the Django app and React UI in separate Terminal windows. The UI terminal opens `http://localhost:5173` automatically; the backend terminal does not open a browser.
+
+The root command also prints the API, health, and WebSocket URLs. Stop both development services from the repository root with:
+
+```bash
+make stop
+```
+
+#### Diagnostic mode without MongoDB
+
+For local diagnostics only, explicitly bypass the startup gate with the separated `--force` argument:
+
+```bash
+make dev -- --force
+```
+
+This keeps the API and health endpoints inspectable while MongoDB is unavailable, but persistence-backed features remain degraded. When starting the backend directly, use `python manage.py runserver --force` from `app/`; Django receives no custom flag because the launcher removes it before parsing.
+
 Or start each service explicitly:
 
 ```bash
-make app   # http://127.0.0.1:8000
-make ui    # http://127.0.0.1:5173
+make app   # http://127.0.0.1:8000; browser-free
+make ui    # http://127.0.0.1:5173; opens the browser
+```
+
+For systems without macOS Terminal, use the one-terminal fallback:
+
+```bash
+make dev-single
 ```
 
 ### 4. Run quality gates
@@ -77,6 +101,7 @@ make ui    # http://127.0.0.1:5173
 make check
 make test
 make build
+make ci
 ```
 
 ## API surface
@@ -104,4 +129,4 @@ make build
 - Model accuracy claims require a documented, representative evaluation set.
 - Real-world emergency workflows require human review, deployment testing, and an independently reviewed notification policy.
 
-See `PLAN.md`, `docs/ARCHITECTURE.md`, and `docs/DEVELOPMENT_GUIDE.md` for the implementation contract.
+See `docs/PLAN.md`, `docs/ARCHITECTURE.md`, and `docs/DEVELOPMENT_GUIDE.md` for the implementation contract. The project license and its academic/non-commercial and safety boundaries are documented in `LICENSE`.

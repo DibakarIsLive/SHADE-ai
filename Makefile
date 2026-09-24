@@ -1,9 +1,16 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install setup-env dev dev-single app ui build check test test-vision test-api compile doctor health clean-cache clean
+SHELL := /bin/sh
+
+.PHONY: help check-system install setup-env dev dev-tabs dev-single app api-only api ui web-only build check test test-vision test-api compile ci doctor check-health health status show-urls logs open stop restart clean-cache clean --force
 
 API_PORT ?= 8000
 WEB_PORT ?= 5173
+MONGO_PORT ?= 27017
+HOST ?= 127.0.0.1
+
+# `make dev -- --force` is the explicit diagnostic bypass for MongoDB startup.
+SHADE_FORCE_FLAG ?= $(if $(filter --force,$(MAKECMDGOALS)),--force,)
 
 RESET   := \033[0m
 BOLD    := \033[1m
@@ -22,13 +29,16 @@ help:
 	@printf '$(CYAN)│  ◈  $(PROJECT)  ·  activity intelligence command center      │$(RESET)\n'
 	@printf '$(CYAN)╰────────────────────────────────────────────────────────────╯$(RESET)\n'
 	@printf '\n$(BOLD)Quick start$(RESET)\n'
-	@printf '  $(GREEN)make install$(RESET)       Install backend and web dependencies\n'
-	@printf '  $(GREEN)make setup-env$(RESET)     Create the local backend environment file\n'
-	@printf '  $(GREEN)make dev$(RESET)           Launch backend and web in Terminal windows\n'
+	@printf '  $(GREEN)make install$(RESET)       Prepare the app and web dependencies\n'
+	@printf '  $(GREEN)make setup-env$(RESET)     Create app/.env from app/.env.example\n'
+	@printf '  $(GREEN)make dev$(RESET)           Launch app and web in separate Terminal windows (MongoDB required)\n'
+	@printf '  $(GREEN)make dev -- --force$(RESET) Launch diagnostic mode without the MongoDB startup check\n'
+	@printf '  $(GREEN)make stop$(RESET)          Stop both development servers\n'
 	@printf '\n$(BOLD)Run$(RESET)\n'
-	@printf '  $(CYAN)dev-single$(RESET)        Run backend and web from one terminal\n'
-	@printf '  $(CYAN)app$(RESET)              Start only the Django backend\n'
-	@printf '  $(CYAN)ui$(RESET)               Start only the React UI\n'
+	@printf '  $(CYAN)dev$(RESET)               Start the full development cockpit\n'
+	@printf '  $(CYAN)dev-single$(RESET)        Run app and web in one terminal\n'
+	@printf '  $(CYAN)app$(RESET)              Start only the Django app\n'
+	@printf '  $(CYAN)ui$(RESET)               Start only the React web UI\n'
 	@printf '\n$(BOLD)Quality$(RESET)\n'
 	@printf '  $(CYAN)check$(RESET)             Run Django system checks\n'
 	@printf '  $(CYAN)test$(RESET)              Run the complete backend suite\n'
@@ -36,41 +46,76 @@ help:
 	@printf '  $(CYAN)test-api$(RESET)          Run HTTP contract tests\n'
 	@printf '  $(CYAN)build$(RESET)             Build the React application\n'
 	@printf '  $(CYAN)ci$(RESET)                Run checks, tests, and the web build\n'
-	@printf '\n$(BOLD)Inspect & clean$(RESET)\n'
-	@printf '  $(CYAN)doctor$(RESET)            Inspect local tooling and services\n'
-	@printf '  $(CYAN)health$(RESET)            Check the running API\n'
+	@printf '\n$(BOLD)Inspect & maintain$(RESET)\n'
+	@printf '  $(CYAN)check-health$(RESET)      Verify MongoDB readiness without starting services\n'
+	@printf '  $(CYAN)health$(RESET)            Query the running API health endpoint\n'
+	@printf '  $(CYAN)status$(RESET)            Show app, web, and MongoDB status\n'
+	@printf '  $(CYAN)open$(RESET)              Open the frontend manually\n'
+	@printf '  $(CYAN)logs$(RESET)              Tail backend logs\n'
 	@printf '  $(CYAN)clean-cache$(RESET)      Remove generated caches\n'
 	@printf '  $(CYAN)clean$(RESET)             Remove local dependency environments\n\n'
 
-install: setup-env
+check-system:
+	@printf '\n$(BOLD)$(CYAN)🩺 Checking local tooling$(RESET)\n'
+	@command -v python3 >/dev/null 2>&1 || { printf '$(RED)✘ Python 3 is required.$(RESET)\n'; exit 1; }
+	@command -v node >/dev/null 2>&1 || { printf '$(RED)✘ Node.js is required.$(RESET)\n'; exit 1; }
+	@command -v npm >/dev/null 2>&1 || { printf '$(RED)✘ npm is required.$(RESET)\n'; exit 1; }
+	@printf '  Python:  $(GREEN)✔ %s$(RESET)\n' "$$(python3 --version 2>&1)"
+	@printf '  Node:    $(GREEN)✔ %s$(RESET)\n' "$$(node --version 2>&1)"
+	@printf '  npm:     $(GREEN)✔ %s$(RESET)\n' "$$(npm --version 2>&1)"
+
+install: check-system setup-env
+	@printf '\n$(MAGENTA)✦ Installing app dependencies...$(RESET)\n'
 	@$(MAKE) -C app install
+	@printf '\n$(MAGENTA)✦ Installing web dependencies...$(RESET)\n'
 	@$(MAKE) -C web install
 	@printf '$(GREEN)✔ SHADE-ai dependencies are ready.$(RESET)\n'
 
 setup-env:
 	@$(MAKE) -C app setup-env
 
-# On macOS, opening separate Terminal windows keeps the API and UI logs readable.
-# Other systems use the portable one-terminal runner.
-dev:
+# macOS launches the app and web processes in separate Terminal windows.
+# The web child owns browser opening; the app child never opens a browser.
+dev: check-health
+	@printf '\n$(BOLD)$(MAGENTA)╔══════════════════════════════════════════╗$(RESET)\n'
+	@printf '$(BOLD)$(MAGENTA)║    🚀 STARTING SHADE-ai                  ║$(RESET)\n'
+	@printf '$(BOLD)$(MAGENTA)╚══════════════════════════════════════════╝$(RESET)\n\n'
 	@if [ "$$(uname)" = "Darwin" ]; then \
-		printf '$(CYAN)✦ Opening API and UI in separate Terminal windows...$(RESET)\n'; \
-		osascript -e 'tell application "Terminal" to do script "cd \"$(CURDIR)/app\" && make dev"' >/dev/null; \
-		osascript -e 'tell application "Terminal" to do script "cd \"$(CURDIR)/web\" && make dev"' >/dev/null; \
-		printf '$(GREEN)✔ Development cockpit launched.$(RESET)\n'; \
+		$(MAKE) dev-tabs SHADE_FORCE_FLAG=$(SHADE_FORCE_FLAG); \
 	else \
-		$(MAKE) dev-single; \
+		$(MAKE) dev-single SHADE_FORCE_FLAG=$(SHADE_FORCE_FLAG); \
 	fi
 
-dev-single:
-	@printf '$(MAGENTA)✦ Starting API + UI — press Ctrl-C to stop$(RESET)\n'
-	@trap 'kill 0' INT TERM; (cd app && $(MAKE) dev PORT=$(API_PORT)) & (cd web && $(MAKE) dev PORT=$(WEB_PORT)) & wait
+dev-tabs:
+	@if [ "$$(uname)" != "Darwin" ]; then \
+		printf '$(YELLOW)⚠ Separate Terminal windows are macOS-specific; using one-terminal mode.$(RESET)\n'; \
+		$(MAKE) dev-single; \
+		exit 0; \
+	fi
+	@printf '$(CYAN)🖥️  Opening Backend in new Terminal window...$(RESET)\n'
+	@osascript -e 'tell application "Terminal" to do script "cd \\\"$(CURDIR)/app\\\" && make dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)"' >/dev/null
+	@sleep 1
+	@printf '$(CYAN)🎨 Opening Frontend in new Terminal window...$(RESET)\n'
+	@osascript -e 'tell application "Terminal" to do script "cd \\\"$(CURDIR)/web\\\" && make dev PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)"' >/dev/null
+	@sleep 2
+	@printf '\n$(GREEN)✅ Development cockpit launched.$(RESET)\n\n'
+	@$(MAKE) show-urls
+	@printf '\n$(DIM)The frontend terminal opens the browser automatically; the backend terminal stays browser-free.$(RESET)\n'
+	@printf '$(YELLOW)💡 Use `make stop` to stop both servers.$(RESET)\n\n'
 
-app:
-	@$(MAKE) -C app dev PORT=$(API_PORT)
+dev-single: check-health
+	@printf '$(MAGENTA)✦ Starting app + web in one terminal — press Ctrl-C to stop$(RESET)\n'
+	@$(MAKE) show-urls
+	@trap 'kill $$APP_PID $$WEB_PID 2>/dev/null || true' INT TERM; \
+	(cd app && $(MAKE) dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)) & APP_PID=$$!; \
+	(cd web && $(MAKE) dev PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)) & WEB_PID=$$!; \
+	wait $$APP_PID $$WEB_PID
 
-ui:
-	@$(MAKE) -C web dev PORT=$(WEB_PORT)
+app api-only api:
+	@$(MAKE) -C app dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)
+
+ui web-only:
+	@$(MAKE) -C web dev PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)
 
 build:
 	@$(MAKE) -C web build
@@ -91,28 +136,81 @@ compile:
 	@$(MAKE) -C app compile
 
 ci:
+	@printf '\n$(MAGENTA)╭─ CI runway ────────────────────────────────────────────────╮$(RESET)\n'
 	@$(MAKE) check
 	@$(MAKE) test
+	@$(MAKE) compile
 	@$(MAKE) build
-	@printf '$(GREEN)✔ CI checks completed.$(RESET)\n'
+	@printf '$(GREEN)╰─ ✔ CI runway clear ────────────────────────────────────────╯$(RESET)\n\n'
 
-doctor:
-	@printf '\n$(BOLD)$(CYAN)🩺 SHADE-ai environment doctor$(RESET)\n'
-	@printf '  Python:  '; command -v python3 >/dev/null 2>&1 && printf '$(GREEN)✔ %s$(RESET)\n' "$$(python3 --version)" || printf '$(RED)✘ missing$(RESET)\n'
-	@printf '  Node:    '; command -v node >/dev/null 2>&1 && printf '$(GREEN)✔ %s$(RESET)\n' "$$(node --version)" || printf '$(RED)✘ missing$(RESET)\n'
-	@printf '  npm:     '; command -v npm >/dev/null 2>&1 && printf '$(GREEN)✔ %s$(RESET)\n' "$$(npm --version)" || printf '$(RED)✘ missing$(RESET)\n'
-	@printf '  MongoDB: '; lsof -ti:27017 >/dev/null 2>&1 && printf '$(GREEN)✔ detected$(RESET)\n' || printf '$(YELLOW)○ not detected — API health will be degraded$(RESET)\n'
-	@printf '  API env: '; test -f app/.env && printf '$(GREEN)✔ present$(RESET)\n' || printf '$(YELLOW)○ missing — run make setup-env$(RESET)\n'
-	@printf '  Web deps:'; test -d web/node_modules && printf ' $(GREEN)✔ ready$(RESET)\n' || printf ' $(YELLOW)○ missing — run make install$(RESET)\n'
+check-health:
+	@printf '\n$(BOLD)$(MAGENTA)✦ Quick health check...$(RESET)\n'
+	@if [ "$(SHADE_FORCE_FLAG)" = "--force" ]; then \
+		printf '$(YELLOW)⚠ MongoDB startup check bypassed via --force$(RESET)\n'; \
+	elif $(MAKE) -C app check-mongodb >/dev/null; then \
+		printf '$(GREEN)✓ MongoDB running and reachable$(RESET)\n'; \
+	else \
+		printf '$(RED)✘ MongoDB is required before starting SHADE-ai$(RESET)\n'; \
+		printf '$(YELLOW)  Start MongoDB, or use `make dev -- --force` for diagnostic mode.$(RESET)\n'; \
+		exit 1; \
+	fi
 
 health:
-	@$(MAKE) -C app ping
+	@$(MAKE) -C app ping HOST=$(HOST) PORT=$(API_PORT)
+
+show-urls:
+	@printf '$(CYAN)╔════════════════════════════════════════════╗$(RESET)\n'
+	@printf '$(CYAN)║              🌐 SHADE-ai URLS              ║$(RESET)\n'
+	@printf '$(CYAN)╠════════════════════════════════════════════╣$(RESET)\n'
+	@printf '$(CYAN)║  Frontend:  http://localhost:$(WEB_PORT)           ║$(RESET)\n'
+	@printf '$(CYAN)║  Backend:   http://localhost:$(API_PORT)           ║$(RESET)\n'
+	@printf '$(CYAN)║  API:       http://localhost:$(API_PORT)/api/      ║$(RESET)\n'
+	@printf '$(CYAN)║  Health:    http://localhost:$(API_PORT)/api/health/ ║$(RESET)\n'
+	@printf '$(CYAN)║  WebSocket: ws://localhost:$(API_PORT)/ws/monitoring/ ║$(RESET)\n'
+	@printf '$(CYAN)╚════════════════════════════════════════════╝$(RESET)\n'
+
+status:
+	@printf '\n$(BOLD)$(CYAN)📡 SHADE-ai service status$(RESET)\n'
+	@if command -v lsof >/dev/null 2>&1 && lsof -ti:$(MONGO_PORT) >/dev/null 2>&1; then printf '  MongoDB:  $(GREEN)✔ running on :$(MONGO_PORT)$(RESET)\n'; else printf '  MongoDB:  $(YELLOW)○ not detected$(RESET)\n'; fi
+	@if command -v lsof >/dev/null 2>&1 && lsof -ti:$(API_PORT) >/dev/null 2>&1; then printf '  Backend:   $(GREEN)✔ running on :$(API_PORT)$(RESET)\n'; else printf '  Backend:   $(YELLOW)○ stopped$(RESET)\n'; fi
+	@if command -v lsof >/dev/null 2>&1 && lsof -ti:$(WEB_PORT) >/dev/null 2>&1; then printf '  Frontend:  $(GREEN)✔ running on :$(WEB_PORT)$(RESET)\n'; else printf '  Frontend:  $(YELLOW)○ stopped$(RESET)\n'; fi
+	@printf '\n$(BOLD)Backend environment$(RESET)\n'
+	@$(MAKE) -C app doctor
+	@printf '\n$(BOLD)Frontend environment$(RESET)\n'
+	@$(MAKE) -C web doctor
+
+logs:
+	@if [ -f app/logs/shade-ai.log ]; then tail -n 80 app/logs/shade-ai.log; else printf '$(YELLOW)No backend log file exists yet. Start the app first.$(RESET)\n'; fi
+
+open:
+	@if [ "$$(uname)" = "Darwin" ]; then open "http://localhost:$(WEB_PORT)"; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "http://localhost:$(WEB_PORT)"; else printf 'Frontend: http://localhost:$(WEB_PORT)\n'; fi
+
+# Stop only the configured SHADE-ai ports; do not kill unrelated project processes.
+stop:
+	@printf '$(RED)🛑 Stopping SHADE-ai development servers...$(RESET)\n'
+	@if command -v lsof >/dev/null 2>&1; then \
+		for port in $(API_PORT) $(WEB_PORT); do \
+			for pid in $$(lsof -ti:$$port 2>/dev/null); do kill $$pid 2>/dev/null || true; done; \
+		done; \
+		sleep 1; \
+		for port in $(API_PORT) $(WEB_PORT); do \
+			for pid in $$(lsof -ti:$$port 2>/dev/null); do kill -9 $$pid 2>/dev/null || true; done; \
+		done; \
+	fi
+	@printf '$(GREEN)✔ Development servers stopped. Terminal windows remain available.$(RESET)\n'
+
+restart: stop install
+	@$(MAKE) dev
 
 clean-cache:
 	@$(MAKE) -C app clean-cache
 	@$(MAKE) -C web clean-cache
 
 clean:
-	@printf '$(YELLOW)⚠ Removing app/.venv, web/node_modules, and generated web output.$(RESET)\n'
+	@printf '$(YELLOW)⚠ Removing app/.venv, web/node_modules, and generated build output.$(RESET)\n'
 	@$(MAKE) -C app clean
 	@$(MAKE) -C web clean
+
+# `make dev -- --force` passes the explicit diagnostic flag to the app child.
+--force:
+	@:
