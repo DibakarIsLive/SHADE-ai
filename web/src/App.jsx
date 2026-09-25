@@ -7,9 +7,9 @@ import Icon from "./components/Icon";
 import MetricCard from "./components/MetricCard";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
-import { activityMix as fallbackActivityMix, presentationCameras, presentationEvents } from "./data/mockData";
+import { presentationCameras, presentationEvents } from "./data/mockData";
 import { api } from "./services/api";
-import { formatDateTime, formatRelativeTime, titleCase } from "./utils/formatters";
+import { titleCase } from "./utils/formatters";
 
 const initialData = {
   cameras: presentationCameras,
@@ -19,29 +19,38 @@ const initialData = {
   capabilities: null,
 };
 
-function mergeItems(payload, fallback) {
-  return Array.isArray(payload?.items) && payload.items.length ? payload.items : fallback;
+function readItems(result, fallback) {
+  if (result.status !== "fulfilled" || !Array.isArray(result.value?.items)) {
+    return fallback;
+  }
+
+  return result.value.persistence === "unavailable" ? fallback : result.value.items;
 }
 
 function deriveActivityMix(events) {
+  if (!events.length) return [];
+
   const counts = new Map();
   events.forEach((event) => {
     const label = titleCase(event.context?.activity || "other");
     counts.set(label, (counts.get(label) || 0) + 1);
   });
 
-  if (!counts.size) return fallbackActivityMix;
-
   const total = [...counts.values()].reduce((sum, value) => sum + value, 0);
   const palette = ["mint", "blue", "violet", "slate"];
-  return [...counts.entries()]
+  const entries = [...counts.entries()]
     .sort(([, first], [, second]) => second - first)
-    .slice(0, 4)
-    .map(([label, count], index) => ({
-      label,
-      value: Math.round((count / total) * 100),
-      color: palette[index],
-    }));
+    .slice(0, 4);
+  const values = entries.map(([, count]) => Math.round((count / total) * 100));
+  const roundingDifference = 100 - values.reduce((sum, value) => sum + value, 0);
+
+  if (values.length) values[0] += roundingDifference;
+
+  return entries.map(([label], index) => ({
+    label,
+    value: values[index],
+    color: palette[index],
+  }));
 }
 
 function normalizeHealth(health) {
@@ -52,6 +61,7 @@ function App() {
   const [activeView, setActiveView] = useState("overview");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [data, setData] = useState(initialData);
+  const [apiConnected, setApiConnected] = useState(false);
   const [presentationMode, setPresentationMode] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState("");
@@ -70,16 +80,27 @@ function App() {
     ]);
 
     const health = healthResult.status === "fulfilled" ? normalizeHealth(healthResult.value) : null;
-    const cameras = cameraResult.status === "fulfilled" ? mergeItems(cameraResult.value, presentationCameras) : presentationCameras;
-    const events = eventResult.status === "fulfilled" ? mergeItems(eventResult.value, presentationEvents) : presentationEvents;
+    const cameras = readItems(cameraResult, presentationCameras);
+    const events = readItems(eventResult, presentationEvents);
     const monitoring = monitoringResult.status === "fulfilled" ? monitoringResult.value : null;
     const capabilities = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : null;
-    const connected = Boolean(health || cameraResult.status === "fulfilled" || eventResult.status === "fulfilled");
+    const connected = [healthResult, cameraResult, eventResult, monitoringResult, capabilitiesResult]
+      .some((result) => result.status === "fulfilled");
+    const persistenceUnavailable = [cameraResult, eventResult]
+      .some((result) => result.status === "fulfilled" && result.value?.persistence === "unavailable");
 
     setData({ cameras, events, health, monitoring, capabilities });
+    setApiConnected(connected);
     setPresentationMode(!connected);
-    if (!connected) setError("The backend is unavailable. Showing safe presentation data instead.");
+
+    if (!connected) {
+      setError("The backend is unavailable. Showing synthetic presentation data; no live camera feed or event persistence is connected.");
+    } else if (persistenceUnavailable) {
+      setError("The API is reachable, but MongoDB persistence is unavailable. Showing synthetic presentation records until stored data can be read.");
+    }
+
     setRefreshing(false);
+    return connected;
   }, []);
 
   useEffect(() => {
@@ -94,12 +115,29 @@ function App() {
 
   const monitoringActive = data.monitoring?.status === "armed" || data.monitoring?.status === "running";
   const activityData = useMemo(() => deriveActivityMix(data.events), [data.events]);
-  const criticalCount = data.events.filter((event) => event.severity === "critical" && event.status !== "resolved").length;
-  const activeCameraCount = data.cameras.filter((camera) => camera.enabled !== false).length;
+  const openAttentionCount = data.events.filter(
+    (event) => event.severity === "critical" && event.status !== "resolved",
+  ).length;
+  const enabledSourceCount = data.cameras.filter((camera) => camera.enabled !== false).length;
   const verifiedCount = data.events.filter((event) => event.status === "verified").length;
-  const averageConfidence = data.events.length
-    ? Math.round((data.events.reduce((sum, event) => sum + Number(event.confidence || 0), 0) / data.events.length) * 100)
-    : 0;
+  const scoredEvents = data.events.filter((event) => Number.isFinite(Number(event.confidence)));
+  const averageConfidence = scoredEvents.length
+    ? Math.round((scoredEvents.reduce((sum, event) => sum + Number(event.confidence), 0) / scoredEvents.length) * 100)
+    : null;
+  const pageCopy = {
+    overview: {
+      title: "Workspace overview",
+      description: "A calm view of what SHADE is observing across the local monitoring workspace.",
+    },
+    incidents: {
+      title: "Event review",
+      description: "Review temporal decision records and keep human judgment in the loop.",
+    },
+    sources: {
+      title: "Camera sources",
+      description: "Inspect the sources that can feed the local activity intelligence pipeline.",
+    },
+  }[activeView];
 
   const handleNavigate = (view) => {
     setActiveView(view);
@@ -112,52 +150,63 @@ function App() {
       if (monitoringActive && data.monitoring?.camera_id === camera.camera_id) {
         const monitoring = await api.stopMonitoring();
         setData((current) => ({ ...current, monitoring }));
-        setNotice("Monitoring stopped for the selected source.");
+        setNotice("Monitoring intent cleared for the selected source.");
       } else {
         const monitoring = await api.startMonitoring(camera.camera_id);
         setData((current) => ({ ...current, monitoring }));
-        setNotice(`Monitoring armed for ${camera.name || "the selected source"}.`);
+        setNotice(`Monitoring intent armed for ${camera.name || "the selected source"}.`);
       }
+      setApiConnected(true);
       setPresentationMode(false);
     } catch {
-      setNotice("The backend control plane is unavailable in presentation mode.");
+      setNotice("The backend control plane is unavailable; presentation mode remains active.");
     }
   };
 
   const handleRefresh = async () => {
-    await loadData();
-    setNotice("Workspace data refreshed.");
+    const connected = await loadData();
+    setNotice(connected ? "API snapshot refreshed." : "Presentation data refreshed; the backend is still unavailable.");
   };
 
-  const handleOpenIncidents = () => {
+  const handleOpenEvents = () => {
     handleNavigate("incidents");
   };
 
   return (
     <div className="app-shell">
-      <div className={`sidebar-layer ${mobileNavOpen ? "sidebar-layer--open" : ""}`} onClick={() => setMobileNavOpen(false)} />
+      <div
+        className={`sidebar-layer ${mobileNavOpen ? "sidebar-layer--open" : ""}`}
+        onClick={() => setMobileNavOpen(false)}
+        aria-hidden="true"
+      />
       <div className={`sidebar-wrapper ${mobileNavOpen ? "sidebar-wrapper--open" : ""}`}>
-        <Sidebar activeView={activeView} onNavigate={handleNavigate} onClose={() => setMobileNavOpen(false)} />
+        <Sidebar
+          activeView={activeView}
+          attentionCount={openAttentionCount}
+          onNavigate={handleNavigate}
+          onClose={() => setMobileNavOpen(false)}
+        />
       </div>
       <main className="main-shell">
         <Topbar
           onMenu={() => setMobileNavOpen(true)}
           onRefresh={handleRefresh}
           refreshing={refreshing}
-          apiReachable={!presentationMode}
-          onOpenIncidents={handleOpenIncidents}
+          apiReachable={apiConnected}
+          notificationCount={openAttentionCount}
+          onOpenIncidents={handleOpenEvents}
         />
 
         <div className="content-wrap">
           <section className="page-heading">
-            <div>
+            <div className="page-heading__copy">
               <span className="eyebrow"><span className="eyebrow__line" /> Local control workspace</span>
-              <h1>{activeView === "overview" ? "Good evening, Dibakar" : activeView === "incidents" ? "Incident log" : "Camera sources"}</h1>
-              <p>
-                {activeView === "overview" && "A calm view of what SHADE is observing across your workspace."}
-                {activeView === "incidents" && "Review temporal observations and keep human judgment in the loop."}
-                {activeView === "sources" && "Manage the sources that feed the local activity intelligence pipeline."}
-              </p>
+              <h1>{pageCopy.title}</h1>
+              <p>{pageCopy.description}</p>
+            </div>
+            <div className="page-heading__visual" aria-hidden="true">
+              <img src="/Banner.png" alt="" />
+              <span>Observe · Analyze · Verify</span>
             </div>
             <div className="heading-meta">
               <div className="date-block"><Icon name="clock" size={15} /><span>{new Intl.DateTimeFormat("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "Asia/Calcutta" }).format(new Date())}</span></div>
@@ -167,53 +216,59 @@ function App() {
           </section>
 
           {error && (
-            <div className="notice notice--info"><Icon name="info" size={17} /><span>{error}</span><button type="button" onClick={() => setError("")} aria-label="Dismiss notice"><Icon name="close" size={15} /></button></div>
+            <div className="notice notice--info" role="status" aria-live="polite">
+              <Icon name="info" size={17} />
+              <span>{error}</span>
+              <button type="button" onClick={() => setError("")} aria-label="Dismiss backend availability notice">
+                <Icon name="close" size={15} />
+              </button>
+            </div>
           )}
-          {notice && <div className="notice notice--success"><Icon name="check" size={17} /><span>{notice}</span></div>}
+          {notice && <div className="notice notice--success" role="status" aria-live="polite"><Icon name="check" size={17} /><span>{notice}</span></div>}
 
           {activeView === "overview" && (
             <>
               <section className="metric-grid" aria-label="Workspace summary">
-                <MetricCard label="Active sources" value={activeCameraCount} detail={monitoringActive ? "One source is being monitored" : "Ready for local monitoring"} icon="camera" tone="mint" trend={activeCameraCount ? "Ready" : undefined} />
-                <MetricCard label="Verified events" value={verifiedCount} detail="Temporal decisions in current view" icon="pulse" tone="violet" />
-                <MetricCard label="Open attention" value={criticalCount} detail={criticalCount ? "Human review is recommended" : "No unresolved critical events"} icon="warning" tone={criticalCount ? "amber" : "blue"} />
-                <MetricCard label="Signal confidence" value={`${averageConfidence || 0}%`} detail="Presentation aggregate, not a model score" icon="activity" tone="blue" />
+                <MetricCard label="Enabled sources" value={enabledSourceCount} detail={monitoringActive ? "One source has armed monitoring" : "Available for local monitoring"} icon="camera" tone="mint" />
+                <MetricCard label="Verified events" value={verifiedCount} detail="Temporal decisions in the current view" icon="pulse" tone="violet" />
+                <MetricCard label="Open attention" value={openAttentionCount} detail={openAttentionCount ? "Human review is recommended" : "No unresolved critical events"} icon="warning" tone={openAttentionCount ? "amber" : "blue"} />
+                <MetricCard label="Mean event confidence" value={averageConfidence === null ? "—" : `${averageConfidence}%`} detail={averageConfidence === null ? "No event scores available" : "Mean returned score; not accuracy"} icon="activity" tone="blue" />
               </section>
 
               <section className="overview-grid">
                 <article className="panel panel--activity">
                   <div className="panel-heading">
                     <div><span className="panel-kicker">Distribution</span><h2>Activity mix</h2></div>
-                    <button className="panel-menu" type="button" aria-label="Activity mix information"><Icon name="info" size={16} /></button>
+                    <span className="panel-context">{presentationMode ? "Synthetic sample" : "Event-derived"}</span>
                   </div>
                   <ActivityMix data={activityData} />
-                  <div className="panel-footnote"><span className="status-dot status-dot--mint" /> Based on the observations currently available in this workspace</div>
+                  <div className="panel-footnote"><span className="status-dot status-dot--mint" /> {activityData.length ? "Percentages are derived from the event records currently available." : "No event records are available for a distribution yet."}</div>
                 </article>
 
                 <article className="panel panel--monitor">
                   <div className="panel-heading">
                     <div><span className="panel-kicker">Control plane</span><h2>Monitoring status</h2></div>
-                    <span className={`status-badge ${monitoringActive ? "status-badge--live" : ""}`}><span className="status-dot" /> {monitoringActive ? "Armed" : "Idle"}</span>
+                    <span className={`status-badge ${monitoringActive ? "status-badge--live" : ""}`} role="status"><span className="status-dot" /> {monitoringActive ? "Armed" : "Idle"}</span>
                   </div>
                   <div className="monitor-visual">
                     <div className={`monitor-orb ${monitoringActive ? "monitor-orb--active" : ""}`}><Icon name="shield" size={30} /></div>
                     <div className="monitor-rings"><span /><span /><span /></div>
-                    <div className="monitor-visual__copy"><strong>{monitoringActive ? "Observation is active" : "Ready to observe"}</strong><span>{monitoringActive ? `Listening to ${data.monitoring?.camera_id || "a camera source"}` : "Start a local monitoring session from a source below."}</span></div>
+                    <div className="monitor-visual__copy"><strong>{monitoringActive ? "Monitoring intent is armed" : "Ready to observe"}</strong><span>{monitoringActive ? `Armed for ${data.monitoring?.camera_id || "a camera source"}; capture remains a separate worker boundary.` : "Arm a local monitoring session from a source below."}</span></div>
                   </div>
                   <div className="monitor-details">
-                    <div><span>Mode</span><strong>{data.health?.runtime?.mode || "synthetic"}</strong></div>
-                    <div><span>Persistence</span><strong>{data.health?.database?.available ? "MongoDB online" : "Degraded / inspectable"}</strong></div>
-                    <div><span>Review</span><strong>Human review enabled</strong></div>
+                    <div><span>Mode</span><strong>{data.health?.runtime?.mode || (presentationMode ? "presentation" : "unreported")}</strong></div>
+                    <div><span>Persistence</span><strong>{data.health ? (data.health.database?.available ? "MongoDB online" : "MongoDB unavailable") : "Presentation only"}</strong></div>
+                    <div><span>Review</span><strong>Human review required</strong></div>
                   </div>
                 </article>
               </section>
 
               <section className="panel panel--wide">
                 <div className="panel-heading panel-heading--table">
-                  <div><span className="panel-kicker">Recent signals</span><h2>Latest activity</h2></div>
-                  <button className="text-button" type="button" onClick={handleOpenIncidents}>View incident log <Icon name="chevron" size={15} /></button>
+                  <div><span className="panel-kicker">Recent signals</span><h2>Latest event records</h2></div>
+                  <button className="text-button" type="button" onClick={handleOpenEvents}>View event log <Icon name="chevron" size={15} /></button>
                 </div>
-                <EventTable events={data.events} compact onViewAll={handleOpenIncidents} />
+                <EventTable events={data.events} compact onViewAll={handleOpenEvents} />
               </section>
 
               <section className="panel panel--wide">
@@ -229,7 +284,7 @@ function App() {
           {activeView === "incidents" && (
             <section className="panel panel--wide page-panel">
               <div className="panel-heading panel-heading--table">
-                <div><span className="panel-kicker">Human review queue</span><h2>All observed incidents</h2></div>
+                <div><span className="panel-kicker">Human review queue</span><h2>All event records</h2></div>
                 <span className="panel-count">{data.events.length} records</span>
               </div>
               <EventTable events={data.events} />
@@ -245,8 +300,8 @@ function App() {
               <CameraGrid cameras={data.cameras} activeCameraId={data.monitoring?.camera_id} monitoringActive={monitoringActive} onMonitor={handleMonitor} />
             </section>
           )}
+           <footer className="app-footer"><span>SHADE-ai · local activity intelligence</span><span><Icon name="shield" size={13} /> Safety aid · human review required</span><span>{presentationMode ? "Synthetic presentation data" : "API snapshot · persistence status above"}</span></footer>
 
-          <footer className="app-footer"><span>SHADE-ai · local activity intelligence</span><span><Icon name="shield" size={13} /> Safety aid · human review required</span><span>Last refreshed {formatRelativeTime(new Date().toISOString())}</span></footer>
         </div>
       </main>
     </div>

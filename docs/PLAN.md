@@ -2,11 +2,11 @@
 
 ## Smart Human Activity Detection and Emergency System
 
-> **Planning status:** Architecture, foundation, and first dashboard slice implemented
+> **Planning status:** Foundation slice implemented; production monitoring integrations remain deferred
 >
-> **Current phase:** Phase 4 — Domain API and local dashboard foundation
+> **Current phase:** Phase 4 complete in foundation scope; Phase 5 worker integration is next
 >
-> **Implementation status:** Backend contracts, MongoEngine documents, vision boundaries, monitoring control plane, and React dashboard are implemented; production camera/model adapters remain intentionally deferred
+> **Implementation status:** Django/DRF contracts, MongoEngine camera/event documents, vendor-neutral vision contracts, deterministic sources, temporal verification, process-local monitoring control, and the React dashboard are implemented. Physical camera capture, validated detector/pose adapters, worker execution, live event publication, notifications, authentication, and event lifecycle workflows are not complete.
 
 ---
 
@@ -22,7 +22,7 @@ The plan intentionally separates:
 - Which components own computer vision, event processing, persistence, notifications, and user-interface responsibilities.
 - How every phase will be tested and accepted.
 
-The first implementation target is a local, single-camera monitoring system that can detect people, track them across frames, estimate posture, identify a potential fall, verify that event using temporal context, save the event, and show it in a React dashboard.
+The long-term first usable target is a local, single-camera monitoring system that can detect people, track them across frames, estimate posture, identify a potential fall, verify that event using temporal context, save the event, and show it in a React dashboard. The current repository implements the contracts and deterministic foundation for that target; it does not yet connect a physical camera or production model to the dashboard.
 
 SHADE-ai is a safety-monitoring aid. It must not be presented as a medical diagnosis system, a guaranteed security system, or a replacement for human emergency response.
 
@@ -32,7 +32,7 @@ SHADE-ai is a safety-monitoring aid. It must not be presented as a medical diagn
 
 ### 2.1 One-line definition
 
-> SHADE-ai is a Django and React-based computer-vision monitoring platform that detects human activity, analyzes temporal context, verifies potentially dangerous situations, records emergency events, and notifies designated responders.
+> SHADE-ai is a Django and React-based computer-vision monitoring platform intended to detect human activity, analyze temporal context, verify potentially dangerous situations, record emergency-event metadata, and eventually notify designated responders. Notification delivery is planned, not implemented in the current foundation slice.
 
 ### 2.2 Core design principle
 
@@ -142,19 +142,21 @@ The project will follow `Resources/ProjectNaming.md`:
 
 ### 4.1 Backend
 
-| Technology               | Role                                                          |
+The technology table below describes the target architecture. Items marked as planned or experimental are not claims that the corresponding runtime adapter is already connected.
+
+| Technology               | Role / current boundary                                      |
 | ------------------------ | ------------------------------------------------------------- |
-| Python 3.11+             | Runtime and computer-vision services                          |
+| Python 3.11+             | Runtime and computer-vision service contracts                 |
 | Django 4.2+              | Web framework and application configuration                   |
-| Django REST Framework    | JSON API and request validation                               |
-| Django Channels          | WebSocket delivery for live dashboard state and events        |
-| MongoDB                  | Event, camera, monitoring-session, and alert history          |
-| MongoEngine              | MongoDB document layer, consistent with the existing projects |
-| OpenCV                   | Camera input, frame processing, overlays, and image utilities |
-| NumPy                    | Numerical operations and normalized vision data               |
-| YOLO-compatible detector | Person detection and, where suitable, pose inference          |
-| Pose-estimation adapter  | Normalized human keypoints and posture signals                |
-| Python logging           | Structured runtime and diagnostic logs                        |
+| Django REST Framework    | Implemented JSON API and request validation                   |
+| Django Channels          | WebSocket boundary; live worker delivery remains deferred    |
+| MongoDB                  | Planned persistence for camera and event metadata             |
+| MongoEngine              | Implemented document boundary for camera/event records       |
+| OpenCV                   | Planned camera/frame adapter; not connected to runtime       |
+| NumPy                    | Planned numerical operations and normalized vision data       |
+| YOLO-compatible detector | Planned/experimental person detector adapter                 |
+| Pose-estimation adapter  | Planned/experimental normalized keypoint adapter             |
+| Python logging           | Implemented runtime and diagnostic logging                    |
 
 The exact detector and pose package versions will be selected during implementation after checking compatibility, model licensing, CPU/GPU behavior, and local performance. The rest of the application must depend on interfaces rather than on a vendor-specific model API.
 
@@ -187,9 +189,9 @@ No TypeScript, TSX, or generated type layer will be introduced unless the projec
 
 ### 4.4 External notification providers
 
-Email is the first outbound notification channel. SMS, push notifications, messaging platforms, and hardware alarms are later adapters.
+Email is the first planned outbound notification channel. SMS, push notifications, messaging platforms, and hardware alarms are later adapters. No production notification adapter is connected in the current repository slice.
 
-Development defaults must use one of these safe modes:
+When notification work begins, development defaults must use one of these safe modes:
 
 - Console email backend.
 - Explicit dry-run notification adapter.
@@ -202,6 +204,8 @@ Real emergency recipients must never be embedded in source code or used in autom
 ## 5. Scope Boundaries
 
 ### 5.1 MVP capabilities
+
+The following is the target MVP contract, not a list of capabilities already connected end to end. The current implementation state is tracked in `Progress.md`.
 
 The minimum complete version will provide:
 
@@ -412,6 +416,8 @@ SHADE-ai/
 
 ### 6.1 Structure rules
 
+The tree above is a target architecture. Existing files are authoritative for the current slice; a conceptual path such as `models.py`, `run-monitor.py`, or the planned notification modules must not be described as implemented until it exists and is tested.
+
 - Keep long-running vision processing out of request views.
 - Keep model loading and inference inside `vision/`.
 - Keep database access and event orchestration inside application services.
@@ -433,27 +439,27 @@ SHADE-ai/
                                │ HTTP JSON + WebSocket events
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Django + Django REST Framework (`app/`)                            │
-│ serializers · views · URLs · health · camera/event APIs            │
+│ Django + Django REST Framework (`app/`)                             │
+│ serializers · views · URLs · health · camera/event APIs             │
 └───────────────┬───────────────────────┬─────────────────────────────┘
                 │                       │
                 ▼                       ▼
 ┌──────────────────────────┐  ┌──────────────────────────────────────┐
-│ MongoDB + MongoEngine    │  │ Monitoring worker                     │
-│ cameras · activities     │  │ camera source · OpenCV · vision       │
-│ emergencies · alerts     │  │ temporal engine · event publisher     │
+│ MongoDB + MongoEngine    │  │ Monitoring worker                    │
+│ cameras · activities     │  │ camera source · OpenCV · vision      │
+│ emergencies · alerts     │  │ temporal engine · event publisher    │
 └──────────────────────────┘  └───────────────┬──────────────────────┘
                                                │
                                                ▼
                                   ┌────────────────────────┐
-                                  │ Vision pipeline         │
+                                  │ Vision pipeline        │
                                   │ detect → track → pose  │
                                   │ → classify → verify    │
                                   └────────────┬───────────┘
                                                │
                                                ▼
                                   ┌────────────────────────┐
-                                  │ Alert adapters          │
+                                  │ Alert adapters         │
                                   │ dashboard · console    │
                                   │ email · future SMS     │
                                   └────────────────────────┘
@@ -479,9 +485,9 @@ SHADE-ai/
 
 ### 7.2 Worker boundary
 
-The camera loop must not run inside a normal HTTP request.
+The camera loop must not run inside a normal HTTP request. This section defines the planned worker boundary. The current implementation exposes only a process-local monitoring controller: `POST /api/monitoring/start/` records an `armed` intent and a local session identifier; it does not launch a worker, open a camera, or run inference.
 
-The local development workflow will use a dedicated Django management command, conceptually:
+The intended local development workflow will use a dedicated Django management command, conceptually. The command below is planned and is not currently registered:
 
 ```bash
 python manage.py run_monitor --camera-id <camera-id>
@@ -1118,7 +1124,11 @@ Convert person observations into explainable activities and short histories.
 
 ### Objective
 
-Persist cameras, sessions, activity events, emergency events, and alerts through a documented API.
+Persist camera configuration and emergency-event metadata through a documented API while keeping degraded behavior explicit.
+
+### Current delivery status
+
+The foundation slice for this phase is implemented. MongoEngine documents and service boundaries exist for cameras and emergency events; the API exposes list/create contracts, bounded health diagnostics, capabilities, and process-local monitoring status. Activity summaries, monitoring sessions, alert records, pagination/filtering, and full event lifecycle mutations remain planned.
 
 ### Work
 
@@ -1134,12 +1144,12 @@ Persist cameras, sessions, activity events, emergency events, and alerts through
 
 ### Completion gate
 
-- API root and health endpoints work.
-- Camera configuration can be created and read.
-- Activity and emergency event contracts are documented.
-- Valid events can be persisted when MongoDB is available.
-- Persistence failures are visible and do not corrupt the in-memory decision path.
-- Normal startup and diagnostic startup behavior are documented.
+- [x] API root, health, and capability endpoints work.
+- [x] Camera configuration can be validated and persisted when MongoDB is available.
+- [x] Emergency-event metadata can be validated and persisted when MongoDB is available.
+- [x] Persistence failures are visible through degraded responses and do not corrupt process-local monitoring intent.
+- [x] Normal startup and diagnostic startup behavior are documented.
+- [ ] Activity summaries, sessions, alerts, filtering, pagination, and complete event lifecycle mutations are implemented.
 
 ---
 
@@ -1147,7 +1157,11 @@ Persist cameras, sessions, activity events, emergency events, and alerts through
 
 ### Objective
 
-Connect the vision pipeline to the domain services without putting the camera loop in HTTP requests.
+Connect the existing vision contracts to a real worker and domain services without putting the camera loop in HTTP requests.
+
+### Current delivery status
+
+Not complete. The repository has vendor-neutral pipeline and temporal-verification contracts plus deterministic sources for tests, but no registered `run_monitor` command, physical camera adapter, production detector/pose adapter, worker loop, or event-transition persistence path.
 
 ### Work
 
@@ -1173,7 +1187,11 @@ Connect the vision pipeline to the domain services without putting the camera lo
 
 ### Objective
 
-Give an operator a clear interface for live monitoring and emergency review.
+Give an operator a clear interface for API snapshots, local monitoring intent, and human event review while preserving a visible boundary around live monitoring.
+
+### Current delivery status
+
+The first dashboard foundation is implemented. The React/JSX UI supports overview, event-review, and source views; API snapshots; synthetic presentation fallback; health/persistence messaging; accessible status and action controls; supplied branding; and responsive layout. Live camera preview, live worker updates, reconnect behavior, and production event publication remain deferred.
 
 ### Work
 
@@ -1203,6 +1221,10 @@ Give an operator a clear interface for live monitoring and emergency review.
 
 Make confirmed events actionable without creating unsafe or noisy notification behavior.
 
+### Current delivery status
+
+Not complete. No notification adapter, dashboard alert document, or acknowledge/resolve/false-positive workflow is connected in the current repository. Event records remain metadata contracts and human review remains external to the API.
+
 ### Work
 
 - Implement dashboard alert records.
@@ -1228,6 +1250,10 @@ Make confirmed events actionable without creating unsafe or noisy notification b
 ### Objective
 
 Measure the system honestly and make its limitations understandable.
+
+### Current delivery status
+
+Documentation and safety boundaries have been refreshed for the foundation slice. Representative camera/model evaluation, performance measurement, retention testing, and a complete monitoring smoke test remain future gates.
 
 ### Work
 
@@ -1517,7 +1543,7 @@ Large model weights should normally remain outside Git or use the repository's c
 
 ## 20. Definition of Done for the First Complete MVP
 
-The MVP is complete only when all of the following are true:
+The complete MVP is not yet reached. The following checklist deliberately distinguishes the implemented foundation from the remaining end-to-end gates:
 
 - [ ] A local webcam can be configured and opened.
 - [ ] A video-file source is available for repeatable tests.
@@ -1541,7 +1567,7 @@ The MVP is complete only when all of the following are true:
 
 ## 21. Immediate Coding Sequence
 
-When implementation begins, work in this order:
+For the remaining implementation, work in this order. Completed foundation items are retained as historical sequencing, not as pending work:
 
 1. Create the root and service scaffolding using `app/` and `web/`.
 2. Add Python settings, environment loading, logging, and health checks.
@@ -1585,9 +1611,10 @@ The first coding phase should establish the boundaries and test contracts before
 - [x] Implement vendor-neutral detection, tracking, and pose contracts.
 - [x] Implement activity and temporal analysis.
 - [x] Implement emergency event persistence documents and service boundary.
-- [x] Implement the monitoring worker boundary.
+- [x] Implement the process-local monitoring control boundary.
+- [ ] Implement the monitoring worker loop and management command.
 - [x] Implement the initial REST API.
-- [x] Implement the read-only WebSocket update path.
+- [x] Implement the read-oriented WebSocket boundary.
 - [x] Implement the React dashboard.
 - [ ] Implement safe notification adapters.
 - [ ] Add production camera/model adapters and complete evaluation gates.
@@ -1596,7 +1623,7 @@ The first coding phase should establish the boundaries and test contracts before
 
 ## 23. Final Direction
 
-SHADE-ai will be built as a reliable, inspectable event-processing system rather than as a single model call hidden inside a Django endpoint.
+SHADE-ai will be built as a reliable, inspectable event-processing system rather than as a single model call hidden inside a Django endpoint. The current foundation makes those boundaries testable without overstating live-camera, model, notification, or emergency-response behavior. `Progress.md` is the concise verified status companion to this plan.
 
 The architecture will preserve the separation:
 

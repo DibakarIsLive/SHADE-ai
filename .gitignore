@@ -142,6 +142,10 @@ artifacts/
 *.webp
 *.tif
 *.tiff
+# The supplied dashboard branding is intentionally trackable at repository root.
+!public/
+!public/Logo.png
+!public/Banner.png
 # Keep explicitly documented UI assets if they are later added under web/src.
 !web/src/assets/
 !web/src/assets/**

@@ -8,6 +8,16 @@ const colors = {
 };
 
 export default function ActivityMix({ data }) {
+  if (!data.length) {
+    return (
+      <div className="empty-state empty-state--mix">
+        <span className="empty-state__icon">—</span>
+        <strong>No activity distribution yet</strong>
+        <span>The mix will be derived after event records are returned.</span>
+      </div>
+    );
+  }
+
   const total = data.reduce((sum, item) => sum + item.value, 0) || 1;
   const segments = data.reduce((result, item) => {
     const start = result.at(-1)?.end || 0;
@@ -23,10 +33,10 @@ export default function ActivityMix({ data }) {
   return (
     <div className="activity-mix">
       <div className="activity-mix__visual">
-        <div className="activity-donut" style={{ background: `conic-gradient(${gradient})` }}>
+        <div className="activity-donut" style={{ background: `conic-gradient(${gradient})` }} aria-label={`${Math.round(total)} percent of the displayed event mix`}>
           <div className="activity-donut__center">
-            <strong>{total}%</strong>
-            <span>observed</span>
+            <strong>{Math.round(total)}%</strong>
+            <span>share shown</span>
           </div>
         </div>
       </div>
@@ -34,7 +44,7 @@ export default function ActivityMix({ data }) {
         {data.map((item) => (
           <div className="activity-legend-row" key={item.label}>
             <div className="activity-legend-row__label">
-              <span className={`legend-dot legend-dot--${item.color}`} />
+              <span className={`legend-dot legend-dot--${item.color}`} aria-hidden="true" />
               <span>{item.label}</span>
             </div>
             <div className="activity-legend-row__value">
