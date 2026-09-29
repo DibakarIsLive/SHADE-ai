@@ -1,10 +1,6 @@
 import Icon from "./Icon";
 
-export default function Topbar({ onMenu, onRefresh, refreshing, apiReachable, notificationCount = 0, onOpenIncidents }) {
-  const notificationLabel = notificationCount
-    ? `Open event log; ${notificationCount} event${notificationCount === 1 ? "" : "s"} need review`
-    : "Open event log; no events need review";
-
+export default function Topbar({ title = "Monitoring Overview", onMenu, onRefresh, refreshing, apiReachable, monitoringActive }) {
   return (
     <header className="topbar">
       <div className="topbar__mobile-menu">
@@ -12,25 +8,23 @@ export default function Topbar({ onMenu, onRefresh, refreshing, apiReachable, no
           <Icon name="menu" size={20} />
         </button>
       </div>
-      <div className="breadcrumb">
-        <span className="breadcrumb__root">Workspace</span>
-        <Icon name="chevron" size={14} />
-        <strong>Monitoring overview</strong>
+      <div className="topbar__context">
+        <span className="topbar__context-line" />
+        <strong>{title}</strong>
       </div>
       <div className="topbar__actions">
         <div className={`connection-pill ${apiReachable ? "connection-pill--live" : "connection-pill--demo"}`} role="status" aria-live="polite">
           <span className="status-dot" aria-hidden="true" />
-          {apiReachable ? "API reachable" : "Presentation state"}
+          {apiReachable ? "API connected" : "Demo data"}
         </div>
-        <button className="topbar-action" type="button" onClick={onRefresh} disabled={refreshing} aria-label="Refresh workspace data">
+        <div className={`monitoring-pill ${monitoringActive ? "monitoring-pill--active" : ""}`} role="status">
+          <span className="status-dot" aria-hidden="true" />
+          {monitoringActive ? "Monitoring active" : "Monitoring idle"}
+        </div>
+        <button className="topbar-action" type="button" onClick={onRefresh} disabled={refreshing} aria-label="Refresh dashboard data" title="Refresh dashboard data">
           <Icon name="refresh" size={16} className={refreshing ? "spin" : ""} />
-          <span>Refresh</span>
+          <span>Refresh data</span>
         </button>
-        <button className="notification-button" type="button" onClick={onOpenIncidents} aria-label={notificationLabel} title={notificationLabel}>
-          <Icon name="bell" size={18} />
-          {notificationCount > 0 && <span className="notification-button__count">{notificationCount}</span>}
-        </button>
-        <div className="topbar__avatar" role="img" aria-label="Local operator group"><Icon name="users" size={15} /></div>
       </div>
     </header>
   );

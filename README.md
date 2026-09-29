@@ -209,7 +209,7 @@ Start MongoDB using the installation method appropriate for the local machine, t
 make dev
 ```
 
-Normal startup performs a bounded MongoDB reachability check before Django starts. On macOS, the backend and frontend open in separate Terminal windows. The frontend opens the browser automatically.
+Normal startup follows the dependency cycle **MongoDB → backend → frontend**. The root command checks MongoDB first, starts Django, waits for `/api/health/` to become reachable, and only then starts Vite. On macOS, the backend and frontend open in separate Terminal windows; the frontend opens the browser automatically.
 
 | Service            | URL                                  |
 | ------------------ | ------------------------------------ |
@@ -241,12 +241,16 @@ python manage.py runserver --force
 
 Diagnostic mode allows Django to expose health, capability, and control-plane responses without the MongoDB startup gate. Persistence-backed reads report an unavailable/degraded state and writes cannot be persisted. It does **not** create a working camera capture pipeline.
 
+The frontend has its own dependency gate: normal `make ui` or `make -C web dev` fails clearly when `http://127.0.0.1:8000/api/health/` is unreachable. Use `make ui -- --force` from the root, or `make -C web dev -- --force` from `web/`, to bypass only that reachability check. The UI may then remain in its existing presentation-fallback state; `--force` does not make the API available.
+
 ### Run one service at a time
 
 ```bash
-make app          # backend only; browser-free
-make ui           # frontend only; opens the browser
-make dev-single   # backend and frontend in one terminal
+make app                 # backend only; browser-free; MongoDB required
+make app -- --force      # backend diagnostic mode without MongoDB
+make ui                  # frontend only; backend required; opens the browser
+make ui -- --force       # frontend diagnostic mode without backend
+make dev-single          # backend, readiness wait, then frontend in one terminal
 ```
 
 ## 🌐 API surface

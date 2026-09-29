@@ -1,5 +1,6 @@
 const paths = {
   activity: <><path d="M3 12h3l2.2-6 3.6 12 2.2-6H21" /><path d="M4 19h16" /></>,
+  add: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
   arrowUp: <><path d="M12 19V5" /><path d="m6 11 6-6 6 6" /></>,
   bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M10 21h4" /></>,
   camera: <><path d="m16 7 2-2 3 3-2 2" /><rect x="3" y="7" width="15" height="12" rx="2" /><circle cx="9" cy="13" r="3" /></>,

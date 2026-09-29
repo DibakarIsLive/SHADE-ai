@@ -3,22 +3,25 @@ import Icon from "./Icon";
 
 const navigation = [
   { id: "overview", label: "Overview", icon: "dashboard" },
-  { id: "incidents", label: "Event log", icon: "warning" },
-  { id: "sources", label: "Camera sources", icon: "camera" },
+  { id: "incidents", label: "Event Log", icon: "warning" },
+  { id: "sources", label: "Camera Sources", icon: "camera" },
 ];
 
-export default function Sidebar({ activeView, attentionCount = 0, onNavigate, onClose }) {
+export default function Sidebar({ activeView, attentionCount = 0, collapsed = false, onNavigate, onClose, onToggle }) {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${collapsed ? "sidebar--collapsed" : ""}`}>
       <div className="sidebar__topline" />
       <div className="sidebar__header">
         <BrandMark />
+        <button className="icon-button sidebar__collapse" type="button" onClick={onToggle} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"}>
+          <Icon name={collapsed ? "chevron" : "menu"} size={18} />
+        </button>
         <button className="icon-button sidebar__close" type="button" onClick={onClose} aria-label="Close navigation">
           <Icon name="close" size={18} />
         </button>
       </div>
 
-      <div className="sidebar__section-label">Workspace</div>
+      <div className="sidebar__section-label">Monitoring</div>
       <nav className="sidebar__nav" aria-label="Primary navigation">
         {navigation.map((item) => (
           <button
@@ -27,6 +30,7 @@ export default function Sidebar({ activeView, attentionCount = 0, onNavigate, on
             key={item.id}
             type="button"
             onClick={() => onNavigate(item.id)}
+            title={collapsed ? item.label : undefined}
           >
             <Icon name={item.icon} size={18} />
             <span>{item.label}</span>
@@ -37,17 +41,17 @@ export default function Sidebar({ activeView, attentionCount = 0, onNavigate, on
         ))}
       </nav>
 
-      <div className="sidebar__section-label sidebar__section-label--spaced">System</div>
-      <div className="sidebar__system-card">
+      <div className="sidebar__section-label sidebar__section-label--spaced">Safety</div>
+      <div className="sidebar__system-card" title={collapsed ? "Human review required" : undefined}>
         <div className="system-card__orb"><Icon name="shield" size={18} /></div>
         <div>
-          <strong>Safety boundary</strong>
-          <span>Human review required</span>
+          <strong>Human review required</strong>
+          <span>Safety assistance only</span>
         </div>
         <span className="status-dot status-dot--mint" aria-hidden="true" />
       </div>
 
-      <div className="sidebar__footer">
+      <div className="sidebar__footer" title={collapsed ? "Local operator group" : undefined}>
         <div className="operator-avatar" role="img" aria-label="Local operator group"><Icon name="users" size={15} /></div>
         <div className="operator-copy">
           <strong>Local operator group</strong>

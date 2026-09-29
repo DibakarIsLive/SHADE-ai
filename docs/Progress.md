@@ -25,6 +25,7 @@
 | React dashboard | Implemented | Responsive JSX dashboard loads API snapshots, presents safe fallback data, exposes review/source views, and includes accessible status and action labels. |
 | Branding | Implemented | Supplied `public/Logo.png` and `public/Banner.png` are used by the dashboard and are explicitly unignored for version control. |
 | Presentation fallback | Implemented | Synthetic data is runtime-relative, visibly labeled, and separated from live camera/model claims. |
+| Startup dependency cycle | Implemented | Normal startup follows MongoDB → backend → frontend; the root waits for backend health before launching the web child, while backend and frontend each expose an explicit `--force` diagnostic bypass. |
 | Authentication | Planned | Operator authentication and authorization are not implemented. |
 | Physical camera capture | Deferred/experimental | No webcam or RTSP adapter is connected; current source implementations are synthetic/iterable. |
 | Detector and pose models | Deferred/experimental | Vendor-neutral interfaces exist, but validated production model artifacts and adapters are not connected. |
@@ -74,6 +75,8 @@ make test-vision
 make test-api
 make -C app check
 make -C web build
+make -C web check-api
+make -C web dev -- --force   # diagnostic UI startup without a reachable backend
 ```
 
 ## Next delivery gates
@@ -84,3 +87,4 @@ make -C web build
 4. Connect live worker state to authenticated dashboard sessions and WebSocket publication.
 5. Add human-reviewed event lifecycle mutations, notification dry runs, retention controls, and deployment tests.
 6. Publish evaluation results before presenting detection performance as a project claim.
+7. Keep normal local startup ordered as MongoDB → backend → frontend; use service-level `--force` only for explicit diagnostics.

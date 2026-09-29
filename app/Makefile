@@ -59,12 +59,25 @@ $(PY):
 	@printf '$(MAGENTA)✦ Creating app virtual environment...$(RESET)\n'
 	@command -v $(PYTHON) >/dev/null 2>&1 || { printf '$(RED)✘ Python not found: $(PYTHON)$(RESET)\n'; exit 1; }
 	$(PYTHON) -m venv $(VENV)
-	@$(PIP) install --upgrade pip --disable-pip-version-check >/dev/null
+	@$(PY) -m pip install --upgrade pip --disable-pip-version-check >/dev/null
 	@printf '$(GREEN)✔ Virtual environment ready.$(RESET)\n'
 
-install: $(PY) setup-env
+install: setup-env
+	@printf '$(MAGENTA)✦ Checking app virtual environment...$(RESET)\n'
+	@venv_path=$$(cd "$(VENV)" 2>/dev/null && pwd -P); \
+	recreate=0; \
+	if [ ! -x "$(PY)" ] || [ ! -f "$(VENV)/pyvenv.cfg" ] || [ -z "$$venv_path" ] || \
+		! "$(PY)" -c 'import sys; raise SystemExit(0 if sys.prefix != sys.base_prefix else 1)' >/dev/null 2>&1 || \
+		! grep -Fq "$$venv_path" "$(VENV)/pyvenv.cfg"; then recreate=1; fi; \
+	if [ $$recreate -eq 0 ] && ! "$(PIP)" --version >/dev/null 2>&1; then recreate=1; fi; \
+	if [ $$recreate -eq 1 ]; then \
+		printf '$(YELLOW)⚠ App virtual environment is missing, moved, or unusable; recreating it.$(RESET)\n'; \
+		command -v $(PYTHON) >/dev/null 2>&1 || { printf '$(RED)✘ Python not found: $(PYTHON)$(RESET)\n'; exit 1; }; \
+		$(PYTHON) -m venv --clear "$(VENV)" || exit $$?; \
+	fi
 	@printf '$(MAGENTA)✦ Installing app dependencies...$(RESET)\n'
-	@$(PIP) install -r requirements.txt --disable-pip-version-check
+	@$(PY) -m pip install --upgrade pip --disable-pip-version-check >/dev/null
+	@$(PY) -m pip install -r requirements.txt --disable-pip-version-check
 	@printf '$(GREEN)✔ App dependencies installed.$(RESET)\n'
 
 setup-env:

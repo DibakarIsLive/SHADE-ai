@@ -7,25 +7,36 @@ const severityIcons = {
   info: "check",
 };
 
-export default function EventTable({ events, compact = false, onViewAll }) {
+export default function EventTable({ events, compact = false, onViewAll, onConfigure }) {
   const visibleEvents = compact ? events.slice(0, 4) : events;
+
+  if (!visibleEvents.length) {
+    return (
+      <div className="empty-state empty-state--table">
+        <span className="empty-state__icon"><Icon name="check" size={20} /></span>
+        <strong>No events recorded yet</strong>
+        <span>Verified events will appear here after SHADE-ai records activity from a monitored camera.</span>
+        {onConfigure && <button className="button button--secondary button--small" type="button" onClick={onConfigure}><Icon name="camera" size={14} /> Configure camera</button>}
+      </div>
+    );
+  }
 
   return (
     <div className="event-table">
       <div className="event-table__head">
-        <div>Event record</div>
-        <div>Source</div>
-        <div>Confidence</div>
+        <div>Event</div>
+        <div>Camera</div>
+        <div>Event score</div>
         <div>State</div>
         <div>Time</div>
       </div>
-      {visibleEvents.length ? visibleEvents.map((event) => {
+      {visibleEvents.map((event) => {
         const severity = event.severity || "info";
         const confidence = clamp(event.confidence);
-        const eventLabel = event.event_type || "Emergency event";
+        const eventLabel = event.event_type || "Activity event";
         const activityLabel = event.context?.activity
           ? titleCase(event.context.activity)
-          : event.status === "verified" ? "Verified temporal decision" : "Temporal decision record";
+          : event.status === "verified" ? "Confirmed after contextual analysis" : "Activity record";
         const confidenceLabel = `Event score ${Math.round(confidence * 100)} percent; not an accuracy measure`;
 
         return (
@@ -41,7 +52,7 @@ export default function EventTable({ events, compact = false, onViewAll }) {
             </div>
             <div className="event-row__source">
               <Icon name="camera" size={14} />
-              <span>{event.context?.zone || event.camera_id || "Unassigned source"}</span>
+              <span>{event.context?.zone || event.camera_id || "Unassigned camera"}</span>
             </div>
             <div className="event-row__confidence" title={confidenceLabel} aria-label={confidenceLabel}>
               <div className="confidence-bar" aria-hidden="true"><span style={{ width: `${confidence * 100}%` }} /></div>
@@ -54,16 +65,10 @@ export default function EventTable({ events, compact = false, onViewAll }) {
             </div>
           </div>
         );
-      }) : (
-        <div className="empty-state empty-state--table">
-          <span className="empty-state__icon"><Icon name="check" size={20} /></span>
-          <strong>No event records yet</strong>
-          <span>Temporal decisions will appear here when records are returned by the API.</span>
-        </div>
-      )}
+      })}
       {compact && events.length > visibleEvents.length && (
         <button className="table-footer-action" type="button" onClick={onViewAll}>
-          View all event records <Icon name="chevron" size={15} />
+          View all events <Icon name="chevron" size={15} />
         </button>
       )}
     </div>

@@ -29,6 +29,11 @@ export const api = {
   getCameras: () => request("/api/cameras/"),
   getEvents: () => request("/api/events/"),
   getMonitoring: () => request("/api/monitoring/status/"),
+  createCamera: (camera) =>
+    request("/api/cameras/", {
+      method: "POST",
+      body: JSON.stringify(camera),
+    }),
   startMonitoring: (cameraId) =>
     request("/api/monitoring/start/", {
       method: "POST",

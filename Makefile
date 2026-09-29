@@ -2,7 +2,7 @@
 
 SHELL := /bin/sh
 
-.PHONY: help check-system install setup-env dev dev-tabs dev-single app api-only api ui web-only build check test test-vision test-api compile ci doctor check-health health status show-urls logs open stop restart clean-cache clean --force
+.PHONY: help check-system install setup-env dev dev-tabs dev-single app api-only api ui web-only build check test test-vision test-api compile ci doctor check-health wait-for-api health status show-urls logs open stop restart clean-cache clean --force
 
 API_PORT ?= 8000
 WEB_PORT ?= 5173
@@ -31,14 +31,15 @@ help:
 	@printf '\n$(BOLD)Quick start$(RESET)\n'
 	@printf '  $(GREEN)make install$(RESET)       Prepare the app and web dependencies\n'
 	@printf '  $(GREEN)make setup-env$(RESET)     Create app/.env from app/.env.example\n'
-	@printf '  $(GREEN)make dev$(RESET)           Launch app and web in separate Terminal windows (MongoDB required)\n'
-	@printf '  $(GREEN)make dev -- --force$(RESET) Launch diagnostic mode without the MongoDB startup check\n'
+	@printf '  $(GREEN)make dev$(RESET)           Launch MongoDB → backend → frontend in separate Terminal windows\n'
+	@printf '  $(GREEN)make dev -- --force$(RESET) Launch diagnostic mode without MongoDB/backend readiness gates\n'
 	@printf '  $(GREEN)make stop$(RESET)          Stop both development servers\n'
 	@printf '\n$(BOLD)Run$(RESET)\n'
 	@printf '  $(CYAN)dev$(RESET)               Start the full development cockpit\n'
 	@printf '  $(CYAN)dev-single$(RESET)        Run app and web in one terminal\n'
-	@printf '  $(CYAN)app$(RESET)              Start only the Django app\n'
-	@printf '  $(CYAN)ui$(RESET)               Start only the React web UI\n'
+	@printf '  $(CYAN)app$(RESET)              Start only the Django app (MongoDB required)\n'
+	@printf '  $(CYAN)ui$(RESET)               Start only the React web UI (backend required)\n'
+	@printf '  $(CYAN)ui -- --force$(RESET)    Start the web UI without the backend gate\n'
 	@printf '\n$(BOLD)Quality$(RESET)\n'
 	@printf '  $(CYAN)check$(RESET)             Run Django system checks\n'
 	@printf '  $(CYAN)test$(RESET)              Run the complete backend suite\n'
@@ -76,6 +77,8 @@ setup-env:
 
 # macOS launches the app and web processes in separate Terminal windows.
 # The web child owns browser opening; the app child never opens a browser.
+# Normal startup follows MongoDB -> backend -> frontend. `--force` keeps both
+# service-level dependency gates explicit while allowing diagnostic startup.
 dev: check-health
 	@printf '\n$(BOLD)$(MAGENTA)╔══════════════════════════════════════════╗$(RESET)\n'
 	@printf '$(BOLD)$(MAGENTA)║    🚀 STARTING SHADE-ai                  ║$(RESET)\n'
@@ -94,9 +97,10 @@ dev-tabs:
 	fi
 	@printf '$(CYAN)🖥️  Opening Backend in new Terminal window...$(RESET)\n'
 	@osascript -e 'tell application "Terminal" to do script "cd \\\"$(CURDIR)/app\\\" && make dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)"' >/dev/null
-	@sleep 1
+	@printf '$(CYAN)⏳ Waiting for the backend health endpoint...$(RESET)\n'
+	@$(MAKE) wait-for-api SHADE_FORCE_FLAG=$(SHADE_FORCE_FLAG)
 	@printf '$(CYAN)🎨 Opening Frontend in new Terminal window...$(RESET)\n'
-	@osascript -e 'tell application "Terminal" to do script "cd \\\"$(CURDIR)/web\\\" && make dev PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)"' >/dev/null
+	@osascript -e 'tell application "Terminal" to do script "cd \\\"$(CURDIR)/web\\\" && make dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)"' >/dev/null
 	@sleep 2
 	@printf '\n$(GREEN)✅ Development cockpit launched.$(RESET)\n\n'
 	@$(MAKE) show-urls
@@ -107,15 +111,17 @@ dev-single: check-health
 	@printf '$(MAGENTA)✦ Starting app + web in one terminal — press Ctrl-C to stop$(RESET)\n'
 	@$(MAKE) show-urls
 	@trap 'kill $$APP_PID $$WEB_PID 2>/dev/null || true' INT TERM; \
-	(cd app && $(MAKE) dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)) & APP_PID=$$!; \
-	(cd web && $(MAKE) dev PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)) & WEB_PID=$$!; \
-	wait $$APP_PID $$WEB_PID
+		(cd app && $(MAKE) dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)) & APP_PID=$$!; \
+		printf '$(CYAN)⏳ Waiting for the backend health endpoint...$(RESET)\n'; \
+		$(MAKE) wait-for-api SHADE_FORCE_FLAG=$(SHADE_FORCE_FLAG); \
+		(cd web && $(MAKE) dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)) & WEB_PID=$$!; \
+		wait $$APP_PID $$WEB_PID
 
 app api-only api:
 	@$(MAKE) -C app dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)
 
 ui web-only:
-	@$(MAKE) -C web dev PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)
+	@$(MAKE) -C web dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)
 
 build:
 	@$(MAKE) -C web build
@@ -142,6 +148,22 @@ ci:
 	@$(MAKE) compile
 	@$(MAKE) build
 	@printf '$(GREEN)╰─ ✔ CI runway clear ────────────────────────────────────────╯$(RESET)\n\n'
+
+wait-for-api:
+	@if [ "$(SHADE_FORCE_FLAG)" = "--force" ]; then \
+		printf '$(YELLOW)⚠ Backend readiness wait bypassed via --force$(RESET)\n'; \
+	else \
+		attempt=0; \
+		until curl --fail --silent --show-error --connect-timeout 1 --max-time 3 "http://$(HOST):$(API_PORT)/api/health/" >/dev/null 2>&1; do \
+			attempt=$$((attempt + 1)); \
+			if [ $$attempt -ge 30 ]; then \
+				printf '$(RED)✘ Backend did not become ready within 30 seconds.$(RESET)\n'; \
+				exit 1; \
+			fi; \
+			sleep 1; \
+		done; \
+		printf '$(GREEN)✓ Backend health endpoint is ready$(RESET)\n'; \
+	fi
 
 check-health:
 	@printf '\n$(BOLD)$(MAGENTA)✦ Quick health check...$(RESET)\n'

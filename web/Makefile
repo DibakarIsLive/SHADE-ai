@@ -2,11 +2,14 @@
 
 SHELL := /bin/sh
 
-.PHONY: help install dev build preview test-api health status doctor open stop clean-build clean-cache clean deps-check audit
+.PHONY: help install dev check-api build preview test-api health status doctor open stop clean-build clean-cache clean deps-check audit --force
 
 NPM ?= npm
 PORT ?= 5173
 API_URL ?= http://127.0.0.1:8000
+
+# `make dev -- --force` is the explicit diagnostic bypass for backend reachability.
+SHADE_FORCE_FLAG ?= $(if $(filter --force,$(MAKECMDGOALS)),--force,)
 
 RESET   := \033[0m
 BOLD    := \033[1m
@@ -25,11 +28,13 @@ help:
 	@printf '$(MAGENTA)╰────────────────────────────────────────────────────────────╯$(RESET)\n'
 	@printf '\n$(BOLD)Quick start$(RESET)\n'
 	@printf '  $(GREEN)make install$(RESET)       Install npm dependencies\n'
-	@printf '  $(GREEN)make dev$(RESET)           Start Vite and open the browser automatically\n'
+	@printf '  $(GREEN)make dev$(RESET)           Require the backend, then start Vite\n'
+	@printf '  $(GREEN)make dev -- --force$(RESET) Start the UI without a reachable backend\n'
 	@printf '  $(GREEN)make doctor$(RESET)        Inspect UI readiness\n'
 	@printf '\n$(BOLD)Quality & inspect$(RESET)\n'
 	@printf '  $(CYAN)build$(RESET)              Create a production build\n'
 	@printf '  $(CYAN)preview$(RESET)            Preview the production build\n'
+	@printf '  $(CYAN)check-api$(RESET)          Verify backend reachability before startup\n'
 	@printf '  $(CYAN)test-api$(RESET)          Check the API health endpoint\n'
 	@printf '  $(CYAN)health$(RESET)             Show dependency, build, and API status\n'
 	@printf '  $(CYAN)open$(RESET)              Open the running frontend manually\n'
@@ -43,7 +48,7 @@ install:
 	@$(NPM) install --no-audit --no-fund
 	@printf '$(GREEN)✔ Web dependencies installed.$(RESET)\n'
 
-dev:
+dev: check-api
 	@if [ ! -d node_modules ]; then printf '$(RED)✘ node_modules is missing; run `make install` first.$(RESET)\n'; exit 1; fi
 	@printf '\n$(BOLD)$(MAGENTA)╔══════════════════════════════════════════╗$(RESET)\n'
 	@printf '$(BOLD)$(MAGENTA)║       ⚛ SHADE-ai Frontend                ║$(RESET)\n'
@@ -62,6 +67,19 @@ build:
 preview:
 	@if [ ! -d dist ]; then printf '$(RED)✘ dist/ is missing; run make build first.$(RESET)\n'; exit 1; fi
 	@$(NPM) run preview -- --host 127.0.0.1 --port $(PORT)
+
+check-api:
+	@command -v curl >/dev/null 2>&1 || { printf '$(RED)✘ curl is required for the backend readiness check.$(RESET)\n'; exit 1; }
+	@if [ "$(SHADE_FORCE_FLAG)" = "--force" ]; then \
+		printf '$(YELLOW)⚠ Backend readiness check bypassed via --force$(RESET)\n'; \
+		printf '$(DIM)  The UI may show presentation fallback until $(API_URL) becomes reachable.$(RESET)\n'; \
+	elif curl --fail --silent --show-error --connect-timeout 1 --max-time 3 "$(API_URL)/api/health/" >/dev/null; then \
+		printf '$(GREEN)✓ Backend reachable at $(API_URL)$(RESET)\n'; \
+	else \
+		printf '$(RED)✘ Backend is required before starting the frontend$(RESET)\n'; \
+		printf '$(YELLOW)  Start the backend first, or use `make dev -- --force` for diagnostic UI mode.$(RESET)\n'; \
+		exit 1; \
+	fi
 
 test-api:
 	@command -v curl >/dev/null 2>&1 || { printf '$(RED)✘ curl is required.$(RESET)\n'; exit 1; }

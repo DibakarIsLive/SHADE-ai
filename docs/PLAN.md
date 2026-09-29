@@ -1038,7 +1038,10 @@ Create a reproducible project foundation and establish the contracts required fo
 - [x] The frontend child opens the browser automatically; the backend child stays browser-free.
 - [x] Root `make stop` stops both configured development service ports.
 - [x] Normal `make dev` requires reachable MongoDB before launching services.
-- [x] `make dev -- --force` provides the explicit diagnostic bypass and propagates it to the backend child.
+- [x] Normal startup follows MongoDB → backend → frontend; the root waits for the backend health endpoint before launching the web child.
+- [x] `make dev -- --force` provides the explicit diagnostic bypass and propagates it to both service children.
+- [x] Normal frontend startup requires a reachable backend health endpoint.
+- [x] `make ui -- --force` and `make -C web dev -- --force` bypass only the frontend backend-reachability gate.
 - [x] `make ci` and `git diff --check` pass.
 
 ---
@@ -1136,6 +1139,8 @@ The foundation slice for this phase is implemented. MongoEngine documents and se
 - Add bounded MongoDB startup diagnostics.
 - Require MongoDB for normal backend and root development startup.
 - Add explicit `make dev -- --force` and `python manage.py runserver --force` diagnostic behavior, including autoreloader-safe flag propagation.
+- Require the backend health endpoint for normal frontend startup; provide `make ui -- --force` and `make -C web dev -- --force` as frontend-only diagnostic bypasses.
+- Start the backend before the frontend and wait for `/api/health/` in root orchestration.
 - Implement domain documents and indexes.
 - Implement serializers and resource endpoints.
 - Add health and capabilities responses.
@@ -1149,6 +1154,8 @@ The foundation slice for this phase is implemented. MongoEngine documents and se
 - [x] Emergency-event metadata can be validated and persisted when MongoDB is available.
 - [x] Persistence failures are visible through degraded responses and do not corrupt process-local monitoring intent.
 - [x] Normal startup and diagnostic startup behavior are documented.
+- [x] Frontend startup fails clearly when the backend is unreachable unless `--force` is explicit.
+- [x] Root orchestration waits for backend readiness before launching the frontend.
 - [ ] Activity summaries, sessions, alerts, filtering, pagination, and complete event lifecycle mutations are implemented.
 
 ---
@@ -1398,11 +1405,13 @@ The command surface is implemented across the root, `app/`, and `web/` Makefiles
 ```text
 make install             Install backend and web dependencies
 make setup-env           Create app/.env from the template
-make dev                 Start the full development cockpit (MongoDB required)
-make dev -- --force      Start diagnostic mode without the MongoDB startup check
-make dev-single          Run both services in one terminal
-make app                 Start only the Django backend
-make ui                  Start only the React frontend and open its browser
+make dev                 Start the full development cockpit (MongoDB → backend → frontend)
+make dev -- --force      Start diagnostic mode without MongoDB/backend readiness gates
+make dev-single          Run both services in one terminal, in dependency order
+make app                 Start only the Django backend (MongoDB required)
+make app -- --force      Start only the backend in diagnostic mode
+make ui                  Start only the React frontend (backend required)
+make ui -- --force       Start only the frontend in diagnostic mode
 make check               Run Django system checks
 make test                Run the complete backend suite
 make test-vision         Run temporal and pipeline tests
@@ -1421,7 +1430,7 @@ make clean               Remove local dependency environments and output
 make ci                  Run checks, tests, compilation, and the frontend build
 ```
 
-On macOS, root `make dev` first performs a bounded MongoDB reachability check, then opens the backend and frontend in separate Terminal windows, prints the service URLs, and lets the frontend child open the browser. `make -C app dev` remains browser-free and enforces the same MongoDB requirement, while `make -C web dev` opens the browser automatically. For intentional diagnostics, `make dev -- --force` bypasses the startup check and propagates `--force` to the backend child; direct backend startup supports `python manage.py runserver --force`. On non-macOS systems, the root command falls back to one-terminal mode. The root `make stop` command is scoped to `API_PORT` and `WEB_PORT` so it does not use broad process-name matching.
+On macOS, root `make dev` first performs a bounded MongoDB reachability check, opens the backend in a separate Terminal window, waits for `/api/health/`, and then opens the frontend in its own Terminal window. The frontend child opens the browser; the backend child stays browser-free. `make -C app dev` remains browser-free and enforces the MongoDB requirement, while `make -C web dev` checks backend reachability before opening the browser. For intentional diagnostics, `make dev -- --force` bypasses both service readiness gates and propagates `--force` to both children; standalone `make app -- --force`, `python manage.py runserver --force`, and `make ui -- --force` remain available. Frontend `--force` bypasses only the backend reachability check and does not make API requests available. On non-macOS systems, the root command falls back to one-terminal mode while preserving the same dependency order. The root `make stop` command is scoped to `API_PORT` and `WEB_PORT` so it does not use broad process-name matching.
 
 ---
 
