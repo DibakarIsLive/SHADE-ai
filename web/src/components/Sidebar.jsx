@@ -7,16 +7,16 @@ const navigation = [
   { id: "sources", label: "Camera Sources", icon: "camera" },
 ];
 
-export default function Sidebar({ activeView, attentionCount = 0, collapsed = false, onNavigate, onClose, onToggle }) {
+export default function Sidebar({ sidebarRef, closeButtonRef, activeView, attentionCount = 0, collapsed = false, onNavigate, onClose, onToggle }) {
   return (
-    <aside className={`sidebar ${collapsed ? "sidebar--collapsed" : ""}`}>
+    <aside ref={sidebarRef} id="primary-sidebar" className={`sidebar ${collapsed ? "sidebar--collapsed" : ""}`}>
       <div className="sidebar__topline" />
       <div className="sidebar__header">
         <BrandMark />
         <button className="icon-button sidebar__collapse" type="button" onClick={onToggle} aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} title={collapsed ? "Expand navigation" : "Collapse navigation"}>
           <Icon name={collapsed ? "chevron" : "menu"} size={18} />
         </button>
-        <button className="icon-button sidebar__close" type="button" onClick={onClose} aria-label="Close navigation">
+        <button ref={closeButtonRef} className="icon-button sidebar__close" type="button" onClick={onClose} aria-label="Close navigation">
           <Icon name="close" size={18} />
         </button>
       </div>

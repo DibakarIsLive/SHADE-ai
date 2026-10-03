@@ -60,6 +60,8 @@ class PoseSignal:
     verticality: float
     motion_score: float
     keypoints: dict[str, tuple[float, float]] = field(default_factory=dict)
+    keypoint_confidences: dict[str, float] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

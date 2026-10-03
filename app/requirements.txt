@@ -8,6 +8,7 @@ pymongo>=4.7,<5
 python-dotenv>=1.0,<2
 numpy>=1.26,<3
 opencv-python-headless>=4.10,<5
+onnxruntime==1.24.3
 pytest>=8,<9
 pytest-django>=4.8,<5
 pytest-cov>=5,<7

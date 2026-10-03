@@ -30,6 +30,12 @@ def serialize_camera(camera: Camera) -> dict:
     }
 
 
+def get_camera(camera_id: str) -> Camera | None:
+    """Load one existing camera configuration for a standalone worker."""
+    connect_mongodb()
+    return Camera.objects(camera_id=camera_id).first()
+
+
 def list_cameras(limit: int = 50) -> list[dict]:
     connect_mongodb()
     return [serialize_camera(camera) for camera in Camera.objects.order_by("-created_at").limit(limit)]

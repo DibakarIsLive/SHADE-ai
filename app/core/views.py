@@ -98,12 +98,14 @@ class CapabilitiesView(APIView):
                 "experimental": [
                     "websocket_monitoring_channel",
                     "opencv_camera_sources",
-                    "vendor_neutral_detector_adapter",
-                    "heuristic_posture_adapter",
+                    "rtmo_s_onnx_cpu_observation_adapter",
+                    "ephemeral_iou_person_tracking",
+                    "geometric_posture_heuristics_not_activity_model",
                 ],
                 "planned": [
                     "authenticated_operators",
-                    "validated_detector_artifacts",
+                    "validated_model_and_training_data_rights",
+                    "representative_fall_evaluation",
                     "multi-camera_monitoring",
                     "production_notification_provider",
                     "retention_scheduler",

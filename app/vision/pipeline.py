@@ -13,6 +13,7 @@ class PipelineResult:
     frame_number: int
     observations: list[ActivityObservation] = field(default_factory=list)
     decisions: list[VerificationDecision] = field(default_factory=list)
+    tracks_started: int = 0
 
 
 class VisionPipeline:
@@ -43,5 +44,11 @@ class VisionPipeline:
             observation = self.classifier.classify(track, pose, frame)
             observations.append(observation)
             decisions.append(self.verifier.observe(observation))
-        self.last_result = PipelineResult(frame.frame_number, observations, decisions)
+        self.verifier.retain_track_ids(self.tracker.retained_track_ids)
+        self.last_result = PipelineResult(
+            frame.frame_number,
+            observations,
+            decisions,
+            tracks_started=sum(track.age_frames == 1 for track in tracks),
+        )
         return self.last_result

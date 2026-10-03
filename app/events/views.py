@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from events.provenance import EventProvenanceValidationError
 from events.serializers import EventCreateSerializer
 from events.services import create_event, list_events
 
@@ -34,6 +35,11 @@ class EventListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         try:
             event = create_event(serializer.validated_data)
+        except EventProvenanceValidationError as exc:
+            return Response(
+                {"provenance": [str(exc)]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             LOGGER.warning("Could not create emergency event: %s", exc)
             return Response(

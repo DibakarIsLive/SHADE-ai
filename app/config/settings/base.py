@@ -114,13 +114,27 @@ REST_FRAMEWORK = {
 # Monitoring and evidence boundaries
 # -----------------------------------------------------------------------------
 MONITORING_MODE = os.getenv("MONITORING_MODE", "synthetic")
-VISION_DEVICE = os.getenv("VISION_DEVICE", "cpu")
+VISION_DEVICE = os.getenv("VISION_DEVICE", "cpu").strip().lower()
+VISION_MODEL_PATH = Path(
+    os.getenv("VISION_MODEL_PATH", str(BASE_DIR / "model-artifacts/vision/rtmo-s/model.onnx"))
+).expanduser()
+VISION_CONFIDENCE_THRESHOLD = float(os.getenv("VISION_CONFIDENCE_THRESHOLD", "0.25"))
+VISION_KEYPOINT_THRESHOLD = float(os.getenv("VISION_KEYPOINT_THRESHOLD", "0.2"))
+VISION_PROVIDER = os.getenv("VISION_PROVIDER", "development-null").strip().lower()
 CAMERA_FRAME_INTERVAL_SECONDS = float(os.getenv("CAMERA_FRAME_INTERVAL_SECONDS", "0.1"))
 EVIDENCE_DIR = BASE_DIR / os.getenv("EVIDENCE_DIR", "runtime/evidence")
 EVIDENCE_RETENTION_DAYS = int(os.getenv("EVIDENCE_RETENTION_DAYS", "7"))
 NOTIFICATION_MODE = os.getenv("NOTIFICATION_MODE", "dry-run")
 NOTIFICATION_RECIPIENT = os.getenv("NOTIFICATION_RECIPIENT", "")
 
+if VISION_PROVIDER not in {"development-null", "rtmo-s"}:
+    raise ValueError("VISION_PROVIDER must be 'development-null' or 'rtmo-s'")
+if not 0.0 <= VISION_CONFIDENCE_THRESHOLD <= 1.0:
+    raise ValueError("VISION_CONFIDENCE_THRESHOLD must be between 0 and 1")
+if not 0.0 <= VISION_KEYPOINT_THRESHOLD <= 1.0:
+    raise ValueError("VISION_KEYPOINT_THRESHOLD must be between 0 and 1")
+if VISION_DEVICE not in {"cpu", "gpu"}:
+    raise ValueError("VISION_DEVICE must be 'cpu' or 'gpu'")
 if CAMERA_FRAME_INTERVAL_SECONDS <= 0:
     raise ValueError("CAMERA_FRAME_INTERVAL_SECONDS must be positive")
 if EVIDENCE_RETENTION_DAYS < 1:

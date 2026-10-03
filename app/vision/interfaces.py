@@ -15,6 +15,22 @@ from vision.types import (
 
 
 class CameraSource(Protocol):
+    """A source with an explicit lifecycle and optional frame metadata."""
+
+    @property
+    def is_opened(self) -> bool: ...
+
+    @property
+    def width(self) -> int | None: ...
+
+    @property
+    def height(self) -> int | None: ...
+
+    @property
+    def fps(self) -> float | None: ...
+
+    def open(self) -> None: ...
+
     def frames(self) -> Iterable[Frame]: ...
 
     def close(self) -> None: ...
@@ -25,6 +41,9 @@ class PersonDetector(Protocol):
 
 
 class PersonTracker(Protocol):
+    @property
+    def retained_track_ids(self) -> frozenset[str]: ...
+
     def update(self, detections: list[Detection], frame: Frame) -> list[Track]: ...
 
 
@@ -38,3 +57,5 @@ class ActivityClassifier(Protocol):
 
 class TemporalVerifier(Protocol):
     def observe(self, observation: ActivityObservation) -> object: ...
+
+    def retain_track_ids(self, track_ids: frozenset[str]) -> None: ...

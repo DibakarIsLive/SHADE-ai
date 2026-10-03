@@ -61,3 +61,8 @@ class FallTemporalVerifier:
 
     def reset(self, track_id: str) -> None:
         self._history.pop(track_id, None)
+
+    def retain_track_ids(self, track_ids: frozenset[str]) -> None:
+        """Release temporal history for trajectories the tracker has expired."""
+        for track_id in self._history.keys() - track_ids:
+            self.reset(track_id)

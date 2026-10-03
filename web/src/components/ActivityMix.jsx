@@ -8,14 +8,13 @@ const colors = {
   slate: "#71829b",
 };
 
-export default function ActivityMix({ data, onConfigure }) {
+export default function ActivityMix({ data }) {
   if (!data.length) {
     return (
       <div className="empty-state empty-state--mix">
         <span className="empty-state__icon"><Icon name="activity" size={20} /></span>
         <strong>No activity data yet</strong>
-        <span>Activity statistics will appear after the monitoring system records events.</span>
-        {onConfigure && <button className="button button--secondary button--small" type="button" onClick={onConfigure}><Icon name="camera" size={14} /> Configure camera</button>}
+        <span>Statistics use saved event records only. The standalone video-file worker is separate from dashboard controls and its development-null provider generates no events.</span>
       </div>
     );
   }

@@ -17,9 +17,18 @@ class SequenceDetector:
 
 
 class StableTracker:
+    def __init__(self):
+        self._retained_track_ids = frozenset()
+
+    @property
+    def retained_track_ids(self):
+        return self._retained_track_ids
+
     def update(self, detections, frame):  # noqa: ARG002
         if not detections:
+            self._retained_track_ids = frozenset()
             return []
+        self._retained_track_ids = frozenset({"person-01"})
         return [Track(track_id="person-01", detection=detections[0], age_frames=frame.frame_number + 1)]
 
 

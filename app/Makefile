@@ -2,7 +2,7 @@
 
 SHELL := /bin/sh
 
-.PHONY: help install setup-env dev runserver check-mongodb check test test-vision test-api shell urls ping compile doctor status logs stop clean-cache clean freeze security-check --force
+.PHONY: help install setup-env dev runserver check-mongodb check test test-vision test-vision-smoke test-api shell urls ping compile doctor status logs stop clean-cache clean freeze security-check --force
 
 PYTHON ?= python3
 VENV ?= .venv
@@ -180,6 +180,9 @@ freeze: $(PY)
 security-check: $(PY)
 	@$(PIP) check
 	@printf '$(GREEN)✔ Python dependency check passed.$(RESET)\n'
+
+test-vision-smoke: $(PY)
+	@VISION_MODEL_SMOKE=1 $(PY) -m pytest -q -m model_smoke tests/test_rtmo_smoke.py
 
 # `make dev -- --force` passes `--force` after BSD Make's option separator.
 --force:

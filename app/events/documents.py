@@ -3,7 +3,31 @@
 from datetime import datetime
 from uuid import uuid4
 
-from mongoengine import DateTimeField, Document, DictField, FloatField, IntField, StringField
+from mongoengine import (
+    DateTimeField,
+    DictField,
+    Document,
+    EmbeddedDocument,
+    EmbeddedDocumentField,
+    FloatField,
+    IntField,
+    StringField,
+)
+
+
+EVENT_SOURCE_TYPES = ("webcam", "rtsp", "video_file", "synthetic")
+
+
+class EventProvenance(EmbeddedDocument):
+    """Runtime identity for the source and vision components behind an event."""
+
+    provider = StringField(required=True, max_length=120)
+    model_identifier = StringField(null=True, default=None, max_length=200)
+    model_version = StringField(null=True, default=None, max_length=120)
+    artifact_sha256 = StringField(null=True, default=None, max_length=64)
+    source_type = StringField(required=True, choices=EVENT_SOURCE_TYPES)
+    camera_id = StringField(required=True, max_length=120)
+    processed_at = DateTimeField(required=True)
 
 
 class EmergencyEvent(Document):
@@ -24,6 +48,7 @@ class EmergencyEvent(Document):
     frame_count = IntField(min_value=0, default=0)
     evidence_uri = StringField(default="", max_length=500)
     context = DictField(default=dict)
+    provenance = EmbeddedDocumentField(EventProvenance, null=True, default=None)
     occurred_at = DateTimeField(default=datetime.utcnow)
     created_at = DateTimeField(default=datetime.utcnow)
 
