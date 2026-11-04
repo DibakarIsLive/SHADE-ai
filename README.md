@@ -54,7 +54,7 @@ The first target scenario is fall-event verification. The repository already con
 
 ## ✦ Current state
 
-The project currently delivers **Phase 5A–5D foundation work with bounded Phase 5C evidence**: the standalone worker processed a non-fall local video with real CPU RTMO-S inference, and a separate deterministic injected-observation run verified the real worker/verifier/event-service/MongoDB persistence path. Phase 5D adds structured, validated, backward-compatible event provenance and worker integration. RTMO did not produce a verified event; no authorized fall evaluation, model-backed MongoDB event, representative fall evaluation, or accuracy claim is established. This is not a validated fall-detection or production monitoring system.
+The project currently delivers **Phase 5A–5D vision/event foundations and Phase 6A local worker supervision**. A separate Django subprocess supervisor now controls the existing worker and reports provider/source readiness; an API runtime check with the real RTMO-S provider verified start, graceful stop, and invalid-video failure. A separate deterministic injected-observation run verified the worker/verifier/event-service/MongoDB path. RTMO has not produced a verified event on representative fall data; no authorized fall evaluation, model-backed MongoDB event, or accuracy claim is established. This is not a validated fall-detection or production monitoring system.
 
 | Area                             |      State      | What is real today                                                                                                      |
 | -------------------------------- | :-------------: | ----------------------------------------------------------------------------------------------------------------------- |
@@ -66,7 +66,7 @@ The project currently delivers **Phase 5A–5D foundation work with bounded Phas
 | Temporal rule                    | **Implemented** | Conservative bounded fall verification with transition, persistence, duration, and confidence gates.                    |
 | React dashboard                  | **Implemented** | Responsive JSX interface with overview, event-review, source views, status messaging, and accessible controls.          |
 | Branding                         | **Implemented** | Official `public/Logo.png` and `public/Banner.png` are used by the product and documentation.                           |
-| Monitoring control plane         |  **Boundary**   | HTTP start/stop records process-local intent only; it does not launch or report the standalone worker.                  |
+| Monitoring control plane         | **Implemented** | Django supervises one separate worker process and reports observed readiness/state; local in-memory single-worker scope only. |
 | WebSocket delivery               |  **Boundary**   | Read-oriented route exists; live worker event publication is not connected.                                             |
 | Video-file worker                | **Implemented** | Standalone `run_monitor` processes configured local video sequentially; provider initialization fails closed.           |
 | RTMO-S pose provider             | **Experimental**| Optional MMPose RTMO-S body7 ONNX adapter emits normalized person/keypoint observations on CPU.                           |
@@ -115,7 +115,7 @@ The visual language pairs a dark operator workspace with mint status signals, co
 ```text
 ┌──────────────────────────────────────────────────────────────────┐
 │ React + Vite + JavaScript/JSX                                    │
-│ Overview · event review · source views · monitoring intent        │
+│ Overview · event review · source views · worker lifecycle          │
 └───────────────────────────────┬──────────────────────────────────┘
                                 │ HTTP JSON + WebSocket boundary
                                 ▼
@@ -132,17 +132,17 @@ The visual language pairs a dark operator workspace with mint status signals, co
 └──────────────────────────────┘                  │
                                                   ▼
                                      ┌─────────────────────────────┐
-                                     │ Phase 5A–5D video worker    │
+                                     │ supervised Phase 5A–6A     │
                                      │ null or RTMO-S CPU provider │
                                      │ observations → rules → event│
                                      └─────────────────────────────┘
 ```
 
-The worker can use the explicit `development-null` provider or, when configured with a locally provisioned artifact, the experimental RTMO-S CPU provider. Webcam/RTSP capture, shared worker status, live publication, and alerts remain deferred.
+The Django supervisor starts the same existing worker in a separate process; it does not execute the processing loop inside the request or persist transient worker state to MongoDB. The worker can use the explicit `development-null` provider or, when configured with a locally provisioned artifact, the experimental RTMO-S CPU provider. Status is process-local and single-worker; webcam/RTSP capture, multi-worker/distributed supervision, WebSocket/live publication, and alerts remain deferred.
 
 ### Processing principle
 
-Long-running vision work must not run inside a normal HTTP request. `python manage.py run_monitor --camera-id <id>` reads one configured local video sequentially and uses the explicitly selected provider: the default `development-null` emits no observations, while `VISION_PROVIDER=rtmo-s` requires a local RTMO-S ONNX artifact at `VISION_MODEL_PATH` and fails clearly if it is unavailable. Weights are not downloaded during worker startup. RTMO-S supplies person boxes and pose keypoints; SHADE normalizes them, assigns short-lived IoU track IDs, derives geometric posture cues, and passes observations through the existing temporal verifier. These posture cues are not learned activity/fall predictions. Only a verifier-approved worker event receives runtime provenance; a model-produced MongoDB event has not been demonstrated. HTTP start/stop still records process-local intent only and does not launch/report worker health; live publication remains deferred.
+Long-running vision work must not run inside a normal HTTP request. `python manage.py run_monitor --camera-id <id>` reads one configured local video sequentially and uses the explicitly selected provider: the default `development-null` emits no observations, while `VISION_PROVIDER=rtmo-s` requires a local RTMO-S ONNX artifact at `VISION_MODEL_PATH` and fails clearly if it is unavailable. Weights are not downloaded during worker startup. RTMO-S supplies person boxes and pose keypoints; SHADE normalizes them, assigns short-lived IoU track IDs, derives geometric posture cues, and passes observations through the existing temporal verifier. These posture cues are not learned activity/fall predictions. Only a verifier-approved worker event receives runtime provenance; a model-produced MongoDB event has not been demonstrated. HTTP start/stop controls the existing worker subprocess. Status reports observed lifecycle; `RUNNING` follows provider and video-source readiness, not merely a successful start response. Browser-interactive behavior has not been verified. Live publication remains deferred.
 
 ### Event provenance
 
@@ -273,12 +273,12 @@ make dev-single          # backend, readiness wait, then frontend in one termina
 | `POST` | `/api/cameras/`           | Validate and persist a camera configuration when MongoDB is available                      |
 | `GET`  | `/api/events/`            | List persisted emergency-event metadata                                                    |
 | `POST` | `/api/events/`            | Validate and persist an event record when MongoDB is available                             |
-| `GET`  | `/api/monitoring/status/` | Read process-local monitoring control-plane state                                          |
-| `POST` | `/api/monitoring/start/`  | Arm monitoring intent for a valid camera identifier                                        |
-| `POST` | `/api/monitoring/stop/`   | Clear local monitoring intent                                                              |
+| `GET`  | `/api/monitoring/status/` | Read observed worker lifecycle, readiness, camera, and safe failure state                  |
+| `POST` | `/api/monitoring/start/`  | Start or query the supervised worker for a validated, enabled video-file camera            |
+| `POST` | `/api/monitoring/stop/`   | Request worker shutdown; observe `STOPPING` until cleanup is complete                     |
 |  `WS`  | `/ws/monitoring/`         | Read-oriented monitoring channel boundary                                                  |
 
-Camera configurations currently accept `webcam`, `rtsp`, `video_file`, or `synthetic` as source types; the standalone Phase 5A/5B worker currently supports configured local video files only. Video-file configurations require a `source_uri` to an existing local file readable by the worker. The default provider remains `development-null`; setting `VISION_PROVIDER=rtmo-s` selects the experimental ONNX adapter, which requires a local artifact at `VISION_MODEL_PATH` and fails closed on missing weights or unsupported configuration. Event records validate severity, lifecycle status, camera ID, confidence in the range `0–1`, duration, frame count, and context; optional provenance is validated separately as described above.
+Camera configurations currently accept `webcam`, `rtsp`, `video_file`, or `synthetic` as source types; the standalone and supervised worker currently support enabled, configured local video files only. Video-file configurations require a `source_uri` to an existing local file readable by the worker. The default provider remains `development-null`; setting `VISION_PROVIDER=rtmo-s` selects the experimental ONNX adapter, which requires a local artifact at `VISION_MODEL_PATH` and fails closed on missing weights or unsupported configuration. Event records validate severity, lifecycle status, camera ID, confidence in the range `0–1`, duration, frame count, and context; optional provenance is validated separately as described above.
 
 ## 🧪 Quality runway
 
@@ -308,7 +308,7 @@ The same commands are available at service level under `app/` and `web/`. Use `m
 - RTMO-S body7 ONNX is an experimental pose-observation provider, not a fall/emergency classifier. The posture labels are geometric heuristics and no detection accuracy is established.
 - RTMO-S and its model/training-data rights are cleared only for local academic evaluation in this work. Rights remain unresolved; do not redistribute the model/artifact or use it in production. Do not commit model weights.
 - CPU smoke timing is a single development measurement, not a real-time or deployment guarantee. Human review and representative evaluation remain necessary.
-- Webcam/RTSP capture, shared worker health, HTTP worker lifecycle, live publication, authentication, retention scheduling, and external notification providers remain deferred.
+- Webcam/RTSP capture, multi-worker/distributed production supervision, WebSocket/live publication, authentication, retention scheduling, and external notification providers remain deferred. Phase 6A local supervision is process-local and single-worker.
 - Keep secrets, camera credentials, raw captures, model weights, generated media, and private evidence outside Git unless their provenance and retention are explicitly reviewed.
 
 ## 🧭 Roadmap
@@ -316,7 +316,7 @@ The same commands are available at service level under `app/` and `web/`. Use `m
 1. Resolve model and training-data rights, then evaluate normalized RTMO-S observations and SHADE's temporal verifier on authorized, representative clips; keep any model use local and academic while rights are unresolved.
 2. Obtain an authorized representative fall clip and demonstrate a real RTMO-generated, temporally verified event through the actual worker/service/MongoDB path without bypassing verifier gates.
 3. Add and test webcam, then RTSP, source adapters without changing the video-file worker boundary.
-4. Establish shared worker health/lifecycle, then connect live state to authenticated dashboard sessions and WebSocket publication.
+4. Evaluate cross-process/production-safe worker supervision if required, then add authenticated live-state delivery and WebSocket publication.
 5. Add human-reviewed event lifecycle mutations, notification dry runs, and retention controls.
 6. Publish no fall-detection or performance claims until representative evaluation and artifact rights are cleared.
 

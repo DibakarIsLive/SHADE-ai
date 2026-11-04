@@ -1,11 +1,44 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from rest_framework.test import APIClient
 
 from cameras import views as camera_views
 from events import views as event_views
-from monitoring.runtime import monitoring_controller
+from monitoring import views as monitoring_views
+
+
+@pytest.fixture
+def enabled_video_camera():
+    return SimpleNamespace(
+        camera_id="camera-01",
+        enabled=True,
+        source_type="video_file",
+        source_uri="/tmp/authorized-control-video.avi",
+    )
+
+
+def worker_snapshot(status="STOPPED", **overrides):
+    return {
+        "status": status,
+        "monitoring_intent": status in {"STARTING", "RUNNING"},
+        "camera_id": "camera-01" if status != "STOPPED" else None,
+        "worker_id": "worker-123" if status != "STOPPED" else None,
+        "started_at": "2026-10-03T10:00:00Z" if status != "STOPPED" else None,
+        "ready_at": "2026-10-03T10:00:01Z" if status == "RUNNING" else None,
+        "updated_at": "2026-10-03T10:00:01Z",
+        "provider": "rtmo-s",
+        "model_name": "RTMO-S",
+        "provider_ready": status == "RUNNING",
+        "inference_available": True,
+        "source_ready": status == "RUNNING",
+        "stop_requested": status == "STOPPING",
+        "failure_code": None,
+        "failure_reason": None,
+        "cleanup_pending": False,
+        **overrides,
+    }
 
 
 @pytest.fixture
@@ -178,19 +211,128 @@ def test_event_create_rejects_mismatched_provenance_camera(client, monkeypatch):
     assert create_called is False
 
 
-def test_monitoring_start_and_stop_update_control_plane(client):
-    monitoring_controller.stop()
+def test_monitoring_api_reports_observed_start_and_stop_transitions(
+    client, enabled_video_camera, monkeypatch
+):
+    current = worker_snapshot("STOPPED")
+    starts = []
 
-    start_response = client.post("/api/monitoring/start/", {"camera_id": "camera-01"}, format="json")
+    def start(camera_id):
+        nonlocal current
+        starts.append(camera_id)
+        current = worker_snapshot("STARTING")
+        return current, True
+
+    def stop():
+        nonlocal current
+        current = worker_snapshot("STOPPING", stop_requested=True, cleanup_pending=True)
+        return current
+
+    monkeypatch.setattr(monitoring_views, "get_camera", lambda _camera_id: enabled_video_camera)
+    monkeypatch.setattr(monitoring_views.worker_supervisor, "start", start)
+    monkeypatch.setattr(monitoring_views.worker_supervisor, "snapshot", lambda: current)
+    monkeypatch.setattr(monitoring_views.worker_supervisor, "stop", stop)
+
+    start_response = client.post(
+        "/api/monitoring/start/", {"camera_id": "camera-01"}, format="json"
+    )
     assert start_response.status_code == 202
-    assert start_response.data["status"] == "armed"
+    assert start_response.data["status"] == "STARTING"
     assert start_response.data["camera_id"] == "camera-01"
-    assert start_response.data["session_id"].startswith("local-")
+    assert start_response.data["monitoring_intent"] is True
+    assert starts == ["camera-01"]
 
+    current = worker_snapshot("RUNNING")
     status_response = client.get("/api/monitoring/status/")
-    assert status_response.data["status"] == "armed"
+    assert status_response.status_code == 200
+    assert status_response.data["status"] == "RUNNING"
+    assert status_response.data["source_ready"] is True
+    assert status_response["Cache-Control"] == "no-store"
 
     stop_response = client.post("/api/monitoring/stop/", {}, format="json")
     assert stop_response.status_code == 202
-    assert stop_response.data["status"] == "idle"
-    assert stop_response.data["session_id"] is None
+    assert stop_response.data["status"] == "STOPPING"
+    assert stop_response.data["stop_requested"] is True
+
+    current = worker_snapshot("STOPPED")
+    stopped_response = client.get("/api/monitoring/status/")
+    assert stopped_response.data["status"] == "STOPPED"
+
+
+def test_monitoring_start_is_idempotent_for_the_same_camera(
+    client, enabled_video_camera, monkeypatch
+):
+    monkeypatch.setattr(monitoring_views, "get_camera", lambda _camera_id: enabled_video_camera)
+    monkeypatch.setattr(
+        monitoring_views.worker_supervisor,
+        "start",
+        lambda _camera_id: (worker_snapshot("RUNNING"), False),
+    )
+
+    response = client.post(
+        "/api/monitoring/start/", {"camera_id": "camera-01"}, format="json"
+    )
+
+    assert response.status_code == 200
+    assert response.data["status"] == "RUNNING"
+
+
+@pytest.mark.parametrize(
+    ("camera", "expected_status", "detail"),
+    [
+        (None, 404, "not found"),
+        (SimpleNamespace(camera_id="camera-01", enabled=False, source_type="video_file", source_uri="/tmp/a.avi"), 400, "disabled"),
+        (SimpleNamespace(camera_id="camera-01", enabled=True, source_type="webcam", source_uri="/dev/video0"), 400, "video_file"),
+        (SimpleNamespace(camera_id="camera-01", enabled=True, source_type="video_file", source_uri=" "), 400, "URI is missing"),
+    ],
+)
+def test_monitoring_start_rejects_invalid_camera_configuration(
+    client, monkeypatch, camera, expected_status, detail
+):
+    start_called = False
+
+    def should_not_start(_camera_id):
+        nonlocal start_called
+        start_called = True
+        return worker_snapshot("STARTING"), True
+
+    monkeypatch.setattr(monitoring_views, "get_camera", lambda _camera_id: camera)
+    monkeypatch.setattr(monitoring_views.worker_supervisor, "start", should_not_start)
+
+    response = client.post(
+        "/api/monitoring/start/", {"camera_id": "camera-01"}, format="json"
+    )
+
+    assert response.status_code == expected_status
+    assert detail.lower() in response.data["detail"].lower()
+    assert start_called is False
+
+
+def test_monitoring_stop_is_idempotent_for_a_stopped_worker(client, monkeypatch):
+    monkeypatch.setattr(
+        monitoring_views.worker_supervisor,
+        "stop",
+        lambda: worker_snapshot("STOPPED"),
+    )
+
+    response = client.post("/api/monitoring/stop/", {}, format="json")
+
+    assert response.status_code == 200
+    assert response.data["status"] == "STOPPED"
+
+
+def test_monitoring_status_exposes_safe_worker_failure(client, monkeypatch):
+    failure = worker_snapshot(
+        "FAILED",
+        monitoring_intent=False,
+        failure_code="CAMERA_UNAVAILABLE",
+        failure_reason="The configured video source could not be opened.",
+    )
+    monkeypatch.setattr(monitoring_views.worker_supervisor, "snapshot", lambda: failure)
+
+    response = client.get("/api/monitoring/status/")
+
+    assert response.status_code == 200
+    assert response.data["status"] == "FAILED"
+    assert response.data["failure_code"] == "CAMERA_UNAVAILABLE"
+    assert "/Users/" not in response.data["failure_reason"]

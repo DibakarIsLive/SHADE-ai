@@ -2,7 +2,7 @@
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from monitoring.runtime import monitoring_controller
+from monitoring.supervisor import worker_supervisor
 
 
 class MonitoringConsumer(AsyncJsonWebsocketConsumer):
@@ -11,7 +11,7 @@ class MonitoringConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json(
             {
                 "type": "monitoring.snapshot",
-                "payload": monitoring_controller.snapshot(),
+                "payload": worker_supervisor.snapshot(),
             }
         )
 

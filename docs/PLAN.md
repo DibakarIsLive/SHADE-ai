@@ -2,11 +2,11 @@
 
 ## Smart Human Activity Detection and Emergency System
 
-> **Planning status:** Phase 5A/5B implemented; Phase 5C verified standalone RTMO control-video observations and an independent injected-observation MongoDB path; Phase 5D implemented validated nullable event provenance; authorized fall evaluation and the model-backed event gate remain open
+> **Planning status:** Phase 5A–5D foundations and the Phase 6A local subprocess-supervision slice are implemented and tested; representative fall evaluation and the RTMO-produced verified-event gate remain open.
 >
-> **Current phase:** Phase 5D event-provenance contract documented; authorized fall evaluation and RTMO-generated verified-event gates remain open
+> **Current phase:** Phase 6A local worker lifecycle integration is implemented. Authorized fall evaluation and RTMO-generated verified-event gates remain open.
 >
-> **Implementation status:** Django/DRF contracts, MongoEngine camera/event documents, vendor-neutral vision contracts, local-video worker, bounded temporal verifier, and React dashboard are implemented. The worker defaults to the explicit null provider or can select RTMO-S body7 ONNX for experimental CPU person/keypoint observations. Posture labels are geometric heuristics, not learned fall/activity classifications. Model/training-data rights remain unresolved beyond local academic evaluation; fall accuracy and a model-produced MongoDB event are not demonstrated. Webcam/RTSP, shared worker health, live publication, notifications, authentication, and event lifecycle workflows remain incomplete.
+> **Implementation status:** Django/DRF contracts, MongoEngine camera/event documents, vendor-neutral vision contracts, standalone and locally supervised video-file worker, bounded temporal verifier, and React lifecycle controls are implemented. Django supervision invokes the same worker outside HTTP and reports readiness-backed local state; it is single-process/single-worker, not production or distributed orchestration. React uses controlled transition polling; browser-interactive verification remains unclaimed. The worker defaults to explicit null inference or can select RTMO-S body7 ONNX for experimental CPU person/keypoint observations. Posture labels are geometric heuristics, not learned fall/activity classifications. Model/training-data rights remain unresolved beyond local academic evaluation; fall accuracy and an RTMO-produced MongoDB event are not demonstrated. Webcam/RTSP, WebSocket publication, notifications, authentication, and event lifecycle workflows remain incomplete.
 
 ---
 
@@ -431,7 +431,7 @@ The tree above is a target architecture. Existing files are authoritative for th
 
 ## 7. Target High-Level Architecture
 
-The following diagram is a target design, not a complete runtime inventory. Phase 5A adds the standalone video-file worker; Phase 5B adds optional RTMO-S body7 ONNX CPU person/pose observations. The worker still defaults to the explicit null provider. Fall evaluation, demonstrated model-backed database persistence, webcam/RTSP, shared worker state, publication, and alerts remain open.
+The following diagram summarizes the current local slices and future boundaries. Phase 5A adds the standalone video-file worker; Phase 5B adds optional RTMO-S body7 ONNX CPU person/pose observations; Phase 6A adds a single-process Django supervisor around that same worker plus readiness-backed API status and React lifecycle controls. The worker still defaults to the explicit null provider. Fall evaluation, demonstrated model-backed database persistence, webcam/RTSP, distributed worker state, WebSocket publication, and alerts remain open.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -487,7 +487,7 @@ The following diagram is a target design, not a complete runtime inventory. Phas
 
 ### 7.2 Worker boundary
 
-The camera loop must not run inside a normal HTTP request. `POST /api/monitoring/start/` continues to record process-local `armed` intent and a local session identifier; it does not launch or report the standalone worker.
+The camera loop must not run inside a normal HTTP request. Phase 6A `POST /api/monitoring/start/` validates an enabled video-file configuration and instructs a process-local supervisor to launch the existing `run_monitor` worker as a separate subprocess. The status endpoint reports observed lifecycle and readiness; a successful HTTP start response means `STARTING`, not `RUNNING`. Supervisor state is in-memory, single-process, and limited to one worker slot.
 
 Phase 5A adds this standalone Django management command; Phase 5B adds optional `rtmo-s` provider selection; Phase 5D passes actual runtime provenance for verified events. It loads an enabled `video_file` camera configuration from MongoDB, reads the configured local video sequentially, and runs the vendor-neutral pipeline. `development-null` remains the default and emits no observations. Explicit `rtmo-s` selection requires a locally provisioned ONNX artifact at `VISION_MODEL_PATH`; the worker initializes the provider before opening the video and fails clearly on missing or invalid dependencies/weights/configuration, without downloading or silently falling back. The optional positive `--max-frames` argument bounds a development run.
 
@@ -505,7 +505,7 @@ The Phase 5A–5D worker currently:
 6. Persist only valid temporally verified decisions through `events.services.create_event`, with in-run duplicate suppression and optional validated structured provenance supplied by the runtime caller. Historical/legacy records may retain null provenance. Deterministic tests exercise this boundary through an injected persistence callback, and a separate bounded Phase 5C manual run verified an injected sequence through the real event service and isolated MongoDB. This remains distinct from real RTMO inference; no RTMO-produced MongoDB event has been demonstrated.
 7. Log lifecycle and failures, honor cooperative SIGINT/SIGTERM shutdown between frames, and release the source on normal or exceptional exits.
 
-**Not yet established or implemented:** representative fall/activity accuracy, cleared artifact/training-data rights beyond local academic evaluation, a model-backed database event, crossing-person tracking robustness, webcam or RTSP sources, shared worker-state/crash reporting, HTTP API supervision, WebSocket publication, notifications, multi-camera orchestration, or event-review mutations. The separately verified injected-observation MongoDB path is not a model-backed event. The event document now supports nullable structured runtime provenance; however, no RTMO-generated event or persisted model provenance has been demonstrated. Historical records without provenance remain valid and serialize it as `null`.
+**Not yet established or implemented:** representative fall/activity accuracy, cleared artifact/training-data rights beyond local academic evaluation, a model-backed database event, crossing-person tracking robustness, webcam or RTSP sources, cross-process/distributed worker supervision or recovery after backend restart, browser-interactive lifecycle verification, WebSocket publication, notifications, multi-camera orchestration, or event-review mutations. The separately verified injected-observation MongoDB path is not a model-backed event. The event document now supports nullable structured runtime provenance; however, no RTMO-generated event or persisted model provenance has been demonstrated. Historical records without provenance remain valid and serialize it as `null`.
 
 ---
 
@@ -1166,12 +1166,12 @@ Connect the existing vision contracts to a real worker and domain services witho
 
 ### Current delivery status
 
-**Phase 5A/5B are implemented; Phase 5C has distinct, bounded control-path evidence; Phase 5D adds structured event provenance; Phase 5 overall is not complete.** `run_monitor` processed a temporary three-frame non-fall control clip with RTMO-S on CPU, producing 24 normalized observations and no verified decision or event. Separately, deterministic injected observations traversed the actual worker and unchanged verifier into `events.services.create_event` and were verified in isolated MongoDB; this does **not** show that RTMO produced the event. Phase 5D tests the optional provenance contract and its worker handoff, but an actual RTMO-produced persisted event has not been demonstrated. No suitable authorized fall clip was identified; representative fall accuracy therefore remains unproven. Model/training-data rights remain unresolved beyond local academic evaluation. Browser rendering, webcam/RTSP, shared worker health, WebSocket publication, and operator event workflows remain deferred.
+**Phase 5A–5D foundations are implemented; the Phase 5 evaluation and event gates remain open.** `run_monitor` processed a temporary three-frame non-fall control clip with RTMO-S on CPU, producing 24 normalized observations and no verified decision or event. Separately, deterministic injected observations traversed the actual worker and unchanged verifier into `events.services.create_event` and were verified in isolated MongoDB; this does **not** show that RTMO produced the event. Phase 5D tests the optional provenance contract and its worker handoff, but an actual RTMO-produced persisted event has not been demonstrated. Phase 6A now provides process-local single-worker Django supervision and authoritative observed lifecycle, locally runtime-verified against an RTMO provider and temporary non-fall file. No suitable authorized fall clip was identified; representative fall accuracy therefore remains unproven. Model/training-data rights remain unresolved beyond local academic evaluation. Browser-interactive verification, webcam/RTSP, distributed supervision, WebSocket publication, and operator event workflows remain incomplete.
 
 ### Work
 
 - [x] Add the standalone management command, local video-file source, frame orchestration, EOF handling, cooperative shutdown, and resource cleanup.
-- [x] Keep process-local HTTP monitoring intent separate from actual worker execution.
+- [x] Keep the long-running worker outside HTTP request execution; Phase 6A starts the existing standalone command through a separate-process supervisor.
 - [x] Preserve the vendor-neutral detector/tracker/pose/activity/temporal pipeline and expose a clearly unavailable null provider rather than fabricating inference.
 - [x] Add a bounded verified-event persistence boundary for future inference-capable providers; test it with deterministic adapters.
 - [x] Integrate RTMO-S body7 ONNX CPU person/keypoint observations behind vendor-neutral contracts; local artifact-backed smoke executes.
@@ -1181,7 +1181,7 @@ Connect the existing vision contracts to a real worker and domain services witho
 - [ ] Identify authorized representative fall-evaluation material and resolve model-weight/training-data rights beyond local academic evaluation; do not redistribute or use in production meanwhile.
 - [ ] Evaluate posture/fall behavior on representative, authorized data.
 - [ ] Add webcam and, later, RTSP capture.
-- [ ] Expose shared worker status, restart/failure visibility, and (if selected) API process supervision.
+- [x] Add process-local worker state/readiness, API supervision, duplicate-start prevention, stop/cleanup, and visible failure handling; cross-Django-process sharing and automatic restart are deferred.
 - [ ] Publish actual worker state/events and add operator event lifecycle workflow.
 
 ### Completion gate
@@ -1194,7 +1194,8 @@ Connect the existing vision contracts to a real worker and domain services witho
 - [ ] Representative fall/activity evaluation validates observation cues and temporal decision behavior.
 - [ ] Demonstrate an RTMO-generated verified decision persisted through actual `events.services.create_event` and MongoDB wiring, with the runtime provenance document queried afterward. The injected-observation MongoDB demonstration does not satisfy this gate.
 - [ ] A webcam source can run through the complete model-backed pipeline.
-- [ ] Duplicate persistence, visible worker failures, and worker/API supervision have deployment-appropriate status and tests.
+- [x] Test start/readiness, duplicate start and stop, failure states, worker exit and cleanup; verify successful start/stop and invalid-video failure through the local API with real RTMO provider initialization.
+- [ ] Demonstrate an RTMO-generated fall/event on authorized representative footage; automated restart, multi-process supervision, and production process management remain out of scope.
 - [ ] Live worker state and events reach authorized dashboard sessions.
 
 ---
@@ -1203,11 +1204,11 @@ Connect the existing vision contracts to a real worker and domain services witho
 
 ### Objective
 
-Give an operator a clear interface for API snapshots, local monitoring intent, and human event review while preserving a visible boundary around live monitoring.
+Give an operator a clear interface for API snapshots, locally supervised worker lifecycle, and human event review while preserving a visible boundary around live monitoring.
 
 ### Current delivery status
 
-The first dashboard foundation is implemented. The React/JSX UI supports overview, event-review, and source views; API snapshots; synthetic presentation fallback; health/persistence messaging; accessible status and action controls; supplied branding; and responsive layout. Live camera preview, live worker updates, reconnect behavior, and production event publication remain deferred.
+The React/JSX UI supports overview, event-review, and source views; API snapshots; synthetic presentation fallback; health/persistence messaging; accessible status/actions; branding; and responsive layout. Phase 6A adds observed worker lifecycle state and controlled one-second polling while transitions or cleanup are pending. The production build and source-level lifecycle checks pass; browser-interactive Start/Stop, live camera preview, WebSocket updates, reconnect behavior, and production event publication remain unverified or deferred.
 
 ### Work
 

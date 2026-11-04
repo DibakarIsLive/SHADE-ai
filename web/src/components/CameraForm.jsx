@@ -19,7 +19,7 @@ export default function CameraForm({ onCancel, onSubmit, submitting, error }) {
         <div>
           <span className="panel-kicker">Camera setup</span>
           <h3>Add camera source</h3>
-          <p>Saving registers configuration only. Dashboard controls record process-local intent without starting a worker or connecting a source; the Phase 5A worker currently supports local video files only.</p>
+          <p>Saving registers configuration only. Dashboard controls can supervise an enabled local video-file worker; webcam, RTSP, and synthetic sources remain configuration-only for UI-driven monitoring.</p>
         </div>
         <button className="icon-button" type="button" onClick={onCancel} aria-label="Close camera setup">
           <Icon name="close" size={18} />

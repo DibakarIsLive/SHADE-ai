@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from config.database import check_mongodb
-from monitoring.runtime import monitoring_controller
+from monitoring.supervisor import worker_supervisor
 
 
 ACTIVITY_CATEGORIES = [
@@ -62,7 +62,7 @@ class HealthView(APIView):
                 "status": status,
                 "timestamp": utc_timestamp(),
                 "database": database,
-                "monitoring": monitoring_controller.snapshot(),
+                "monitoring": worker_supervisor.snapshot(),
                 "runtime": {
                     "mode": settings.MONITORING_MODE,
                     "vision_device": settings.VISION_DEVICE,

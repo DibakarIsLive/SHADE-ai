@@ -42,6 +42,7 @@ class MonitoringWorker:
         inference_available: bool = True,
         event_persister: Callable[[dict[str, Any]], Any] | None = None,
         stop_event: threading.Event | None = None,
+        on_source_opened: Callable[[], None] | None = None,
     ) -> None:
         self.source = source
         self.pipeline = pipeline
@@ -55,6 +56,7 @@ class MonitoringWorker:
         self.inference_available = inference_available
         self.event_persister = event_persister
         self.stop_event = stop_event or threading.Event()
+        self.on_source_opened = on_source_opened
         self.running = False
         self._persisted_event_keys: OrderedDict[tuple[str, str], None] = OrderedDict()
         self.last_run_summary: dict[str, int | float] | None = None
@@ -93,6 +95,8 @@ class MonitoringWorker:
         primary_error: BaseException | None = None
         try:
             self.source.open()
+            if self.on_source_opened is not None:
+                self.on_source_opened()
             LOGGER.info(
                 "monitor.source_opened camera_id=%s width=%s height=%s source_fps=%s",
                 self.camera_id or "unspecified",

@@ -112,6 +112,52 @@ def test_worker_processes_frames_and_releases_source_on_normal_shutdown():
     assert worker.pipeline.last_result.observations == []
 
 
+def test_worker_reports_source_ready_only_after_successful_open():
+    class ReadinessSource(IterableFrameSource):
+        def __init__(self, frames):
+            super().__init__(frames)
+            self.open_completed = False
+
+        def open(self):
+            super().open()
+            self.open_completed = True
+
+    source = ReadinessSource(deterministic_frames())
+    readiness = []
+    worker = MonitoringWorker(
+        source,
+        DevelopmentNullVisionProvider().build_pipeline(),
+        inference_available=False,
+        on_source_opened=lambda: readiness.append(source.open_completed),
+    )
+
+    assert worker.run(max_frames=1) == 1
+    assert readiness == [True]
+    assert source.closed is True
+
+
+def test_worker_does_not_report_source_ready_when_open_fails():
+    source = IterableFrameSource(deterministic_frames())
+    readiness = []
+
+    def fail_to_open():
+        raise RuntimeError("source open failed")
+
+    source.open = fail_to_open
+    worker = MonitoringWorker(
+        source,
+        DevelopmentNullVisionProvider().build_pipeline(),
+        inference_available=False,
+        on_source_opened=lambda: readiness.append(True),
+    )
+
+    with pytest.raises(RuntimeError, match="source open failed"):
+        worker.run()
+
+    assert readiness == []
+    assert worker.running is False
+
+
 def test_worker_honors_a_graceful_shutdown_request_between_frames():
     source = IterableFrameSource(deterministic_frames())
     stop_event = threading.Event()

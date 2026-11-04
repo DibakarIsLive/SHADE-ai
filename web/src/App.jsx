@@ -123,14 +123,33 @@ function normalizeHealth(health) {
     : null;
 }
 
+const WORKER_STATES = ["STOPPED", "STARTING", "RUNNING", "STOPPING", "FAILED"];
+const ACTIVE_WORKER_STATES = ["STARTING", "RUNNING", "STOPPING"];
+const MONITORING_POLL_INTERVAL_MS = 1000;
+
 function normalizeMonitoring(monitoring) {
-  if (!isRecord(monitoring) || !["idle", "armed"].includes(monitoring.status)) return null;
-  if (monitoring.camera_id !== undefined && monitoring.camera_id !== null && typeof monitoring.camera_id !== "string") return null;
-  if (monitoring.session_id !== undefined && monitoring.session_id !== null && typeof monitoring.session_id !== "string") return null;
-  if (monitoring.started_at !== undefined && monitoring.started_at !== null && typeof monitoring.started_at !== "string") return null;
-  if (monitoring.updated_at !== undefined && typeof monitoring.updated_at !== "string") return null;
-  if (monitoring.status === "armed" && (typeof monitoring.camera_id !== "string" || !monitoring.camera_id)) return null;
+  if (!isRecord(monitoring) || !WORKER_STATES.includes(monitoring.status)) return null;
+  if (typeof monitoring.updated_at !== "string") return null;
+  if (typeof monitoring.provider_ready !== "boolean" || typeof monitoring.source_ready !== "boolean") return null;
+  if (typeof monitoring.stop_requested !== "boolean" || typeof monitoring.cleanup_pending !== "boolean") return null;
+  if (monitoring.inference_available !== null && typeof monitoring.inference_available !== "boolean") return null;
+  for (const field of ["camera_id", "worker_id", "started_at", "ready_at", "provider", "model_name", "failure_code", "failure_reason"]) {
+    if (monitoring[field] !== undefined && monitoring[field] !== null && typeof monitoring[field] !== "string") return null;
+  }
+  if (ACTIVE_WORKER_STATES.includes(monitoring.status) && (!monitoring.camera_id || !monitoring.worker_id)) return null;
+  if (monitoring.status === "RUNNING" && (!monitoring.provider_ready || !monitoring.source_ready)) return null;
+  if (monitoring.status === "FAILED" && !monitoring.failure_code) return null;
   return monitoring;
+}
+
+function monitoringStateLabel(status) {
+  return ({
+    STOPPED: "Stopped",
+    STARTING: "Starting…",
+    RUNNING: "Running",
+    STOPPING: "Stopping…",
+    FAILED: "Failed",
+  })[status] || "Unavailable";
 }
 
 function normalizeCapabilities(capabilities) {
@@ -163,9 +182,12 @@ function App() {
   const mainShellRef = useRef(null);
   const navigationWasOpen = useRef(false);
   const loadSequence = useRef(0);
+  const monitoringSequence = useRef(0);
+  const [monitoringPollError, setMonitoringPollError] = useState("");
 
   const loadData = useCallback(async ({ quiet = false } = {}) => {
     const requestId = ++loadSequence.current;
+    const monitoringRequestId = ++monitoringSequence.current;
     if (!quiet) {
       setRefreshing(true);
       setNotice("");
@@ -210,15 +232,16 @@ function App() {
     }
 
     if (requestId === loadSequence.current) {
-      setData({
+      setData((current) => ({
         cameras,
         events,
         health,
-        monitoring,
+        monitoring: monitoringRequestId === monitoringSequence.current ? monitoring : current.monitoring,
         capabilities,
         cameraRecordsAvailable,
         eventRecordsAvailable,
-      });
+      }));
+      if (monitoringRequestId === monitoringSequence.current) setMonitoringPollError("");
       setApiConnected(backendReachable);
       setError(availabilityMessages.join(" "));
       setInitialLoading(false);
@@ -232,8 +255,40 @@ function App() {
     loadData({ quiet: true });
     return () => {
       loadSequence.current += 1;
+      monitoringSequence.current += 1;
     };
   }, [loadData]);
+
+  useEffect(() => {
+    const cleanupPending = data.monitoring?.cleanup_pending === true;
+    if ((!ACTIVE_WORKER_STATES.includes(data.monitoring?.status) && !cleanupPending) || controlPending) return undefined;
+
+    let cancelled = false;
+    let timeoutId;
+    const pollStatus = async () => {
+      const requestId = ++monitoringSequence.current;
+      try {
+        const monitoring = normalizeMonitoring(await api.getMonitoring());
+        if (!monitoring) throw new Error("The monitoring status endpoint returned an unsupported worker state.");
+        if (!cancelled && requestId === monitoringSequence.current) {
+          setData((current) => ({ ...current, monitoring }));
+          setMonitoringPollError("");
+        }
+      } catch (requestError) {
+        if (!cancelled && requestId === monitoringSequence.current) {
+          setMonitoringPollError(requestError.message || "Worker status could not be refreshed.");
+        }
+      } finally {
+        if (!cancelled) timeoutId = window.setTimeout(pollStatus, MONITORING_POLL_INTERVAL_MS);
+      }
+    };
+
+    timeoutId = window.setTimeout(pollStatus, MONITORING_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [data.monitoring?.status, data.monitoring?.cleanup_pending, controlPending]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 760px)");
@@ -296,26 +351,48 @@ function App() {
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
 
-  const monitoringArmed = data.monitoring?.status === "armed";
   const monitoringStatus = data.monitoring?.status || "unavailable";
+  const monitoringStatusLabel = monitoringStateLabel(monitoringStatus);
+  const monitoringRunning = monitoringStatus === "RUNNING";
+  const monitoringTransitioning = monitoringStatus === "STARTING" || monitoringStatus === "STOPPING";
   const monitoringControlAvailable = Boolean(apiConnected && data.monitoring);
   const cameraConfigurationAvailable = Boolean(apiConnected && data.cameraRecordsAvailable);
   const cameraControlsAvailable = Boolean(monitoringControlAvailable && cameraConfigurationAvailable);
+  const displayedCameras = data.cameras;
+  const canStartMonitoring = ["STOPPED", "FAILED"].includes(monitoringStatus)
+    && !data.monitoring?.cleanup_pending
+    && cameraControlsAvailable;
+  const canStopMonitoring = ["STARTING", "RUNNING"].includes(monitoringStatus)
+    && monitoringControlAvailable;
+  const activeCamera = data.monitoring?.camera_id
+    ? displayedCameras.find((camera) => camera.camera_id === data.monitoring.camera_id)
+    : null;
+  const activeCameraName = activeCamera?.name || data.monitoring?.camera_id || "the selected camera";
+  const monitoringDetail = monitoringStatus === "STARTING"
+    ? "Worker process created; waiting for provider/model initialization and the video source to open."
+    : monitoringRunning
+      ? `${activeCameraName}: provider ${data.monitoring?.provider || "initialized"}${data.monitoring?.model_name ? ` (${data.monitoring.model_name})` : ""}; video source open. ${data.monitoring?.inference_available === false ? "Inference is unavailable with this provider; no detections or events are produced." : data.monitoring?.inference_available === true ? "Inference provider reports ready." : "Inference readiness was not reported."}`
+      : monitoringStatus === "STOPPING"
+        ? "Shutdown requested; waiting for the worker process to exit and be reaped."
+        : monitoringStatus === "FAILED"
+          ? data.monitoring?.failure_reason || "The worker failed; inspect the safe failure code and backend logs."
+          : monitoringStatus === "STOPPED"
+            ? "No monitoring worker is running. Starting requires a saved, enabled video-file camera."
+            : "The backend has not reported a usable worker state.";
   const demoCameras = !data.cameraRecordsAvailable;
   const demoEvents = !data.eventRecordsAvailable;
-  const displayedCameras = data.cameras;
   const displayedEvents = data.events;
   const activityData = useMemo(() => deriveActivityMix(displayedEvents), [displayedEvents]);
   const unresolvedCount = data.eventRecordsAvailable
     ? displayedEvents.filter((event) => event.status !== "resolved").length
     : null;
   const configuredCameraCount = data.cameraRecordsAvailable ? displayedCameras.length : null;
-  const armedIntentCount = data.monitoring ? Number(monitoringArmed) : null;
+  const workerStateMetric = data.monitoring ? monitoringStatusLabel : "Unavailable";
   const verifiedCount = data.eventRecordsAvailable
     ? displayedEvents.filter((event) => event.status === "verified").length
     : null;
   const primaryCamera = data.cameraRecordsAvailable
-    ? displayedCameras.find((camera) => camera.enabled && camera.camera_id && camera.source_type !== "synthetic")
+    ? displayedCameras.find((camera) => camera.enabled && camera.camera_id && camera.source_type === "video_file")
     : null;
   const syntheticRuntime = data.health?.runtime?.mode === "synthetic";
   const syntheticSourceVisible = displayedCameras.some((camera) => camera.source_type === "synthetic");
@@ -333,7 +410,7 @@ function App() {
   const pageCopy = {
     overview: {
       title: "Monitoring Overview",
-      description: "See the current monitoring state, configured cameras, events, and system health in one place.",
+      description: "Observe the supervised worker lifecycle, configured video-file sources, event records, and system health.",
     },
     incidents: {
       title: "Event Log",
@@ -341,7 +418,7 @@ function App() {
     },
     sources: {
       title: "Camera Sources",
-      description: "Manage the camera configurations available to the local monitoring control.",
+      description: "Manage saved sources. UI-driven worker control currently accepts enabled video-file configurations only.",
     },
   }[activeView];
 
@@ -365,43 +442,68 @@ function App() {
   };
 
   const handleMonitor = async (camera) => {
-    if (!camera?.camera_id) return;
-    const clearingIntent = monitoringArmed && data.monitoring?.camera_id === camera.camera_id;
-    if (!apiConnected || !monitoringControlAvailable || (!clearingIntent && !cameraConfigurationAvailable)) {
-      setNotice("Monitoring control requires a reachable API, a reported control state, and saved camera records. Demo samples cannot be armed.");
+    if (!camera?.camera_id || controlPending) return;
+    const stoppingWorker = ["STARTING", "RUNNING"].includes(monitoringStatus)
+      && data.monitoring?.camera_id === camera.camera_id;
+    if (!apiConnected || !monitoringControlAvailable) {
+      setNotice("Worker control requires a reachable API and an observed supervisor state.");
       return;
     }
-    if (!clearingIntent) {
+    if ((monitoringTransitioning && !stoppingWorker) || data.monitoring?.cleanup_pending) {
+      setNotice("Wait for the current worker transition and process cleanup to finish.");
+      return;
+    }
+    if (!stoppingWorker && !canStartMonitoring) {
+      setNotice(monitoringRunning
+        ? `A worker is already running for ${activeCameraName}. Stop it before selecting another camera.`
+        : "The worker supervisor is not currently accepting a start request.");
+      return;
+    }
+    if (!stoppingWorker) {
       const configuredCamera = displayedCameras.find((source) => source.camera_id === camera.camera_id);
-      if (!configuredCamera || !configuredCamera.enabled || configuredCamera.source_type === "synthetic") {
-        setNotice("Only an enabled, non-synthetic camera configuration returned by the API can be armed.");
+      if (!configuredCamera || !configuredCamera.enabled || configuredCamera.source_type !== "video_file") {
+        setNotice("Monitoring currently requires a saved, enabled video-file camera configuration.");
         return;
       }
     }
 
     setNotice("");
     setError("");
+    setMonitoringPollError("");
     setControlPending(true);
+    ++monitoringSequence.current;
     try {
-      if (clearingIntent) {
-        const monitoring = normalizeMonitoring(await api.stopMonitoring());
-        if (!monitoring || monitoring.status !== "idle") {
-          throw new Error("The monitoring API returned an unsupported stop response.");
-        }
-        setData((current) => ({ ...current, monitoring }));
-        setNotice("Process-local monitoring intent cleared. No camera worker was started or stopped.");
-      } else {
-        const monitoring = normalizeMonitoring(await api.startMonitoring(camera.camera_id));
-        if (!monitoring || monitoring.status !== "armed" || monitoring.camera_id !== camera.camera_id) {
-          throw new Error("The monitoring API returned an unsupported start response.");
-        }
-        setData((current) => ({ ...current, monitoring }));
-        setNotice(`Process-local control intent armed for ${camera.name || "the selected camera"}. This control does not start the standalone video-file worker; its development-null provider generates no detections or events.`);
+      const monitoring = normalizeMonitoring(stoppingWorker
+        ? await api.stopMonitoring()
+        : await api.startMonitoring(camera.camera_id));
+      const acceptedStates = stoppingWorker ? ["STOPPING", "STOPPED", "FAILED"] : ["STARTING", "RUNNING", "FAILED"];
+      if (!monitoring || !acceptedStates.includes(monitoring.status)
+        || (!stoppingWorker && monitoring.camera_id !== camera.camera_id)) {
+        throw new Error(`The monitoring API returned an unsupported ${stoppingWorker ? "stop" : "start"} response.`);
       }
-      // Prevent an older dashboard snapshot from overwriting the mutation response.
+
+      // Make the mutation response newer than any in-flight status read or dashboard snapshot.
       loadSequence.current += 1;
+      ++monitoringSequence.current;
+      setData((current) => ({ ...current, monitoring }));
       setRefreshing(false);
       setApiConnected(true);
+      if (stoppingWorker) {
+        if (monitoring.status === "FAILED") {
+          setError(monitoring.failure_reason || "The worker failed during shutdown.");
+        } else {
+          setNotice(monitoring.status === "STOPPED"
+            ? "The supervisor reports the worker stopped."
+            : "Stop requested. Waiting for the worker process to exit.");
+        }
+      } else if (monitoring.status === "FAILED") {
+        setNotice("");
+        setError(monitoring.failure_reason || "The worker failed before becoming ready.");
+      } else {
+        setNotice(monitoring.status === "RUNNING"
+          ? `The backend confirms the worker is running for ${camera.name || "the selected camera"}.`
+          : `Start accepted for ${camera.name || "the selected camera"}. Waiting for provider and video-source readiness.`);
+      }
     } catch (requestError) {
       setNotice("");
       setError(requestError.message || "The monitoring control is unavailable.");
@@ -494,6 +596,7 @@ function App() {
             </div>
           )}
           {notice && <div className="notice notice--success" role="status" aria-live="polite"><Icon name="check" size={17} /><span>{notice}</span></div>}
+          {monitoringPollError && <div className="notice notice--info" role="status" aria-live="polite"><Icon name="info" size={17} /><span>Worker status may be stale: {monitoringPollError}</span></div>}
 
           {initialLoading ? (
             <div className="dashboard-loading" role="status" aria-live="polite">
@@ -511,36 +614,32 @@ function App() {
 
           {activeView === "overview" && (
             <>
-              <section className={`current-monitoring panel ${monitoringArmed ? "current-monitoring--active" : ""}`} aria-labelledby="current-monitoring-title">
+              <section className={`current-monitoring panel ${monitoringRunning ? "current-monitoring--active" : ""} ${monitoringStatus === "FAILED" ? "current-monitoring--failed" : ""}`} aria-labelledby="current-monitoring-title" aria-busy={monitoringTransitioning}>
                 <div className="current-monitoring__copy">
-                  <span className="panel-kicker">Monitoring control</span>
+                  <span className="panel-kicker">Supervised worker</span>
                   <div className="current-monitoring__title-row">
-                    <span className={`current-monitoring__indicator ${monitoringArmed ? "current-monitoring__indicator--active" : ""}`} aria-hidden="true" />
-                    <h2 id="current-monitoring-title">{monitoringArmed ? "Control intent armed" : monitoringControlAvailable ? "Control intent idle" : "Control state unavailable"}</h2>
+                    <span className={`current-monitoring__indicator ${monitoringRunning ? "current-monitoring__indicator--active" : ""} ${monitoringStatus === "FAILED" ? "current-monitoring__indicator--failed" : ""}`} aria-hidden="true" />
+                    <h2 id="current-monitoring-title">{monitoringStatus === "FAILED" ? "Monitoring failed" : monitoringControlAvailable ? `Monitoring ${monitoringStatusLabel.toLowerCase()}` : "Worker state unavailable"}</h2>
                   </div>
-                  <p>
-                    {monitoringArmed
-                      ? `Process-local control intent is armed for ${displayedCameras.find((camera) => camera.camera_id === data.monitoring?.camera_id)?.name || "the selected camera"}. It does not start camera capture or an AI worker.`
-                      : !monitoringControlAvailable
-                        ? "The backend has not reported a usable monitoring control state. Standalone worker health and source connectivity are not reported to this dashboard."
-                        : configuredCameraCount === null
-                          ? "Camera configurations could not be verified. Synthetic examples are not eligible for control actions."
-                          : configuredCameraCount === 0
-                            ? "No saved camera configurations are available. Add a source to enable process-local intent control."
-                            : "No process-local monitoring intent is armed. Arming intent does not start or report the standalone video-file worker."}
-                  </p>
+                  <p>{monitoringDetail}</p>
+                  {data.monitoring?.failure_code && <span className="monitoring-failure-code">Failure code: {data.monitoring.failure_code}</span>}
                   <div className="current-monitoring__actions">
                     {configuredCameraCount === 0 ? (
                       <button className="button button--primary" type="button" onClick={handleConfigure} disabled={!cameraConfigurationAvailable}>
                         <Icon name="add" size={15} /> Add camera source
                       </button>
-                    ) : monitoringArmed ? (
-                      <button className="button button--primary" type="button" onClick={() => handleMonitor({ camera_id: data.monitoring?.camera_id })} disabled={controlPending || !monitoringControlAvailable}>
-                        <Icon name="stop" size={14} /> Clear local intent
+                    ) : canStopMonitoring ? (
+                      <button className="button button--primary" type="button" onClick={() => handleMonitor({ camera_id: data.monitoring?.camera_id })} disabled={controlPending}>
+                        <Icon name="stop" size={14} /> {monitoringStatus === "STARTING" ? "Cancel startup" : "Stop monitoring"}
+                      </button>
+                    ) : monitoringStatus === "STOPPING" ? (
+                      <button className="button button--primary" type="button" disabled>
+                        <Icon name="stop" size={14} /> Stopping…
                       </button>
                     ) : (
-                      <button className="button button--primary" type="button" onClick={() => handleMonitor(primaryCamera)} disabled={controlPending || !cameraControlsAvailable || !primaryCamera}>
-                        <Icon name="play" size={14} /> {primaryCamera ? "Arm local intent" : data.cameraRecordsAvailable ? "No enabled camera" : "Camera records unavailable"}
+                      <button className="button button--primary" type="button" onClick={() => handleMonitor(primaryCamera)} disabled={!canStartMonitoring || !primaryCamera || controlPending}>
+                        <Icon name={monitoringStatus === "FAILED" ? "refresh" : "play"} size={14} />
+                        {controlPending ? "Starting…" : primaryCamera ? monitoringStatus === "FAILED" ? "Retry worker" : "Start monitoring" : data.cameraRecordsAvailable ? "No enabled video-file camera" : "Camera records unavailable"}
                       </button>
                     )}
                     <button className="button button--secondary" type="button" onClick={() => handleNavigate("sources")}>
@@ -548,12 +647,12 @@ function App() {
                     </button>
                   </div>
                 </div>
-                <div className="current-monitoring__state" aria-label="Monitoring control summary">
-                  <div className={`monitor-orb ${monitoringArmed ? "monitor-orb--active" : ""}`}><Icon name={monitoringArmed ? "pulse" : "shield"} size={30} /></div>
+                <div className="current-monitoring__state" aria-label="Worker lifecycle summary">
+                  <div className={`monitor-orb ${monitoringRunning ? "monitor-orb--active" : ""} ${monitoringStatus === "FAILED" ? "monitor-orb--failed" : ""}`}><Icon name={monitoringRunning ? "pulse" : monitoringStatus === "FAILED" ? "warning" : "shield"} size={30} /></div>
                   <div>
-                    <span className="current-monitoring__state-label">Process-local control</span>
-                    <strong>{monitoringArmed ? "Intent armed" : monitoringControlAvailable ? "Intent idle" : "Not reported"}</strong>
-                    <small>The standalone video-file worker is separate from this control; its development-null provider generates no detections or events. Human review remains required.</small>
+                    <span className="current-monitoring__state-label">Backend-observed state</span>
+                    <strong>{monitoringControlAvailable ? monitoringStatusLabel : "Not reported"}</strong>
+                    <small>{data.monitoring?.started_at ? `Started ${new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Calcutta" }).format(new Date(data.monitoring.started_at))}. ` : ""}{data.monitoring?.cleanup_pending ? "Process cleanup is pending. " : ""}Status refreshes every second while the worker is active or cleaning up. Human review remains required.</small>
                   </div>
                 </div>
               </section>
@@ -562,7 +661,7 @@ function App() {
                 <MetricCard label="Camera Sources" value={configuredCameraCount ?? "Unavailable"} detail={configuredCameraCount === null ? "API records unavailable" : configuredCameraCount ? "Saved configurations; not connected feeds" : "No saved configurations"} icon="camera" tone="mint" />
                 <MetricCard label="Verified Event Records" value={verifiedCount ?? "Unavailable"} detail="Backend status label; not emergency confirmation" icon="pulse" tone="violet" />
                 <MetricCard label="Unresolved Event Records" value={unresolvedCount ?? "Unavailable"} detail={unresolvedCount ? "Human review required; no emergency guarantee" : unresolvedCount === 0 ? "No unresolved API records" : "API records unavailable"} icon="warning" tone={unresolvedCount ? "amber" : "blue"} />
-                <MetricCard label="Armed Control Intents" value={armedIntentCount ?? "Unavailable"} detail="Process-local intent only; worker health is not reported" icon="signal" tone="blue" />
+                <MetricCard label="Worker State" value={workerStateMetric} detail="Supervisor-observed lifecycle; polls every second while active or cleaning up" icon="signal" tone={monitoringStatus === "FAILED" ? "amber" : monitoringRunning ? "mint" : "blue"} />
               </section>
 
               <section className="panel panel--wide">
@@ -573,7 +672,7 @@ function App() {
                     <button className="text-button" type="button" onClick={handleConfigure} disabled={!cameraConfigurationAvailable}><Icon name="add" size={14} /> Add camera</button>
                   </div>
                 </div>
-                <CameraGrid cameras={displayedCameras} activeCameraId={data.monitoring?.camera_id} monitoringActive={monitoringArmed} controlsAvailable={cameraControlsAvailable} controlPending={controlPending} onMonitor={handleMonitor} onConfigure={handleConfigure} />
+<CameraGrid cameras={displayedCameras} activeCameraId={data.monitoring?.camera_id} workerState={monitoringStatus} controlsAvailable={cameraControlsAvailable} canStart={canStartMonitoring} canStop={canStopMonitoring} controlPending={controlPending} onMonitor={handleMonitor} onConfigure={handleConfigure} />
               </section>
 
               <section className="panel panel--wide attention-panel">
@@ -613,10 +712,10 @@ function App() {
                   <div className="system-status-list">
                     <div><span><span className={`status-dot ${apiConnected ? "status-dot--mint" : ""}`} /> API</span><strong>{apiConnected ? "Connected" : "Unavailable"}</strong></div>
                     <div><span><span className={`status-dot ${data.health?.database?.available ? "status-dot--mint" : ""}`} /> Database</span><strong>{data.health ? data.health.database?.available ? "Connected" : "Unavailable" : "Not reported"}</strong></div>
-                    <div><span><span className={`status-dot ${data.monitoring ? "status-dot--mint" : ""}`} /> Monitoring control</span><strong>{data.monitoring ? "Available" : "Not reported"}</strong></div>
+                    <div><span><span className={`status-dot ${monitoringRunning ? "status-dot--mint" : monitoringStatus === "FAILED" ? "status-dot--red" : ""}`} /> Monitoring worker</span><strong>{data.monitoring ? monitoringStatusLabel : "Not reported"}</strong></div>
                     <div><span><span className="status-dot status-dot--slate" /> Live updates</span><strong>Not active</strong></div>
                   </div>
-                  <p className="system-status-note">{data.health?.runtime?.mode ? `Processing mode: ${titleCase(data.health.runtime.mode)}.` : "Infrastructure details will appear after the backend responds."} Database status describes stored-record availability, not monitoring activity.</p>
+                  <p className="system-status-note">{data.health?.runtime?.mode ? `Processing mode: ${titleCase(data.health.runtime.mode)}.` : "Infrastructure details will appear after the backend responds."} Worker status comes from the process supervisor; database status describes stored-record availability.</p>
                 </article>
               </section>
             </>
@@ -642,11 +741,11 @@ function App() {
                 </div>
               </div>
               {cameraFormOpen && <CameraForm onCancel={() => { setCameraFormOpen(false); setCameraFormError(""); }} onSubmit={handleCreateCamera} submitting={cameraSubmitting} error={cameraFormError} />}
-              <CameraGrid cameras={displayedCameras} activeCameraId={data.monitoring?.camera_id} monitoringActive={monitoringArmed} controlsAvailable={cameraControlsAvailable} controlPending={controlPending} onMonitor={handleMonitor} onConfigure={handleConfigure} />
+              <CameraGrid cameras={displayedCameras} activeCameraId={data.monitoring?.camera_id} workerState={monitoringStatus} controlsAvailable={cameraControlsAvailable} canStart={canStartMonitoring} canStop={canStopMonitoring} controlPending={controlPending} onMonitor={handleMonitor} onConfigure={handleConfigure} />
             </section>
           )}
 
-          <footer className="app-footer"><span>SHADE-ai · local activity intelligence</span><span>{demoCameras || demoEvents ? "Synthetic demo data · not live records" : syntheticRuntime || syntheticSourceVisible ? "Synthetic mode · no production AI" : "API snapshot · worker status not reported"}</span></footer>
+          <footer className="app-footer"><span>SHADE-ai · local activity intelligence</span><span>{demoCameras || demoEvents ? "Synthetic demo data · not live records" : syntheticRuntime || syntheticSourceVisible ? "Synthetic mode · no production AI" : `Supervisor state · ${monitoringStatusLabel}`}</span></footer>
             </>
           )}
         </div>
