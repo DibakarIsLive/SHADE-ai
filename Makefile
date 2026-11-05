@@ -96,11 +96,11 @@ dev-tabs:
 		exit 0; \
 	fi
 	@printf '$(CYAN)🖥️  Opening Backend in new Terminal window...$(RESET)\n'
-	@osascript -e 'tell application "Terminal" to do script "cd \\\"$(CURDIR)/app\\\" && make dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)"' >/dev/null
+	@osascript -e 'tell application "Terminal" to do script "cd \"$(CURDIR)/app\" && make dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) HOST=$(HOST) PORT=$(API_PORT)"' >/dev/null
 	@printf '$(CYAN)⏳ Waiting for the backend health endpoint...$(RESET)\n'
 	@$(MAKE) wait-for-api SHADE_FORCE_FLAG=$(SHADE_FORCE_FLAG)
 	@printf '$(CYAN)🎨 Opening Frontend in new Terminal window...$(RESET)\n'
-	@osascript -e 'tell application "Terminal" to do script "cd \\\"$(CURDIR)/web\\\" && make dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)"' >/dev/null
+	@osascript -e 'tell application "Terminal" to do script "cd \"$(CURDIR)/web\" && make dev$(if $(SHADE_FORCE_FLAG), -- $(SHADE_FORCE_FLAG),) PORT=$(WEB_PORT) API_URL=http://$(HOST):$(API_PORT)"' >/dev/null
 	@sleep 2
 	@printf '\n$(GREEN)✅ Development cockpit launched.$(RESET)\n\n'
 	@$(MAKE) show-urls
